@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # PowerShell drops the `--` that forwards flags through `npm run`.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # Upload happens in the release job, so electron-builder must not publish on its own.
+      - run: npm run dist -- --publish never
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.os }}
+          # Top-level files only: release/ also holds unpacked apps and the NSIS uninstaller.
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*Setup*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
