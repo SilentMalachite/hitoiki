@@ -14,7 +14,7 @@ export const enum Channel {
 export interface FlashMessage {
   color: string;
   opacity: number;
-  /** true: the renderer fades 0 -> opacity -> 0 over periodMs. false: main blinks by showing/hiding the window. */
+  /** The renderer shows the color for the first half of periodMs. true: fade in/out with a CSS transition; false: switch instantly. */
   fade: boolean;
   periodMs: number;
 }

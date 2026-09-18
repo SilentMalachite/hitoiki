@@ -38,15 +38,17 @@
 ### F2 フラッシュ
 - 全モニター同時（`screen.getAllDisplays()` の各 `bounds` に 1 枚ずつ `BrowserWindow`）。
 - ウィンドウ設定: `frame:false, transparent:true, alwaysOnTop:true, skipTaskbar:true,
-  hasShadow:false, resizable:false`。生成後に `setAlwaysOnTop(true, 'screen-saver')` と
+  hasShadow:false, resizable:false, enableLargerThanScreen:true`（最後は macOS でメニューバーの下へ
+  ずらされず上端まで覆うため）。生成後に `setAlwaysOnTop(true, 'screen-saver')` と
   `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })`。
 - **Windows では `setFullScreen(true)` を使わない**（透明ウィンドウと相性が悪い）。
   `bounds` をディスプレイに合わせるだけにする。
 - `flashCount` 回（既定 3）、`flashIntervalMs` 周期（既定 400）で点滅。
 - **下限 334ms**（1 秒に 3 回を超えない）。設定値がそれ未満なら 334 に丸める。
 - 色 `flashColor`（既定 `#FFFFFF`）、最大不透明度 `flashOpacity`（既定 0.85）。
-- `fadeMode` が true のときは show/hide ではなく、レンダラー側で CSS transition により
-  不透明度を 0 → max → 0 と変化させる。
+- 点滅はレンダラー側で不透明度を切り替える（周期の前半は max、後半は 0）。フラッシュ中はウィンドウを
+  表示したままにし、show/hide では点滅させない（休憩表示へ切り替えたときに古いフレームが映らないように）。
+  `fadeMode` が true のときは CSS transition で 0 → max → 0 と変化させ、false のときは瞬時に切り替える。
 
 ### F3 休憩オーバーレイ
 - フラッシュ終了後、同じウィンドウ群をオーバーレイとして残す。

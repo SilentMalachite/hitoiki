@@ -89,34 +89,29 @@
   const flash = document.getElementById('flash');
   const countdown = document.getElementById('countdown');
   const ring = document.getElementById('ring');
-  let fadeOutTimer = null;
+  let offTimer = null;
   let holdTimer = null;
 
   window.hitoiki.onFlash(({ color, opacity, fade, periodMs }) => {
-    clearTimeout(fadeOutTimer);
-    flash.style.backgroundColor = color;
-
-    if (!fade) {
-      // Main blinks by showing/hiding the window; just paint at full strength.
-      flash.style.transition = 'none';
-      flash.style.opacity = String(opacity);
-      return;
-    }
-
+    // On for the first half of the period, off for the second: faded in fade mode, instant otherwise.
     const half = periodMs / 2;
+    clearTimeout(offTimer);
+    flash.style.backgroundColor = color;
     flash.style.transition = 'none';
-    flash.style.opacity = '0';
-    void flash.offsetWidth; // flush styles so the transition restarts from 0
-    flash.style.transition = `opacity ${half}ms ease-in-out`;
-    flash.style.opacity = String(opacity);
-    fadeOutTimer = setTimeout(() => {
+    flash.style.opacity = fade ? '0' : String(opacity);
+    if (fade) {
+      void flash.offsetWidth; // flush styles so the transition restarts from 0
+      flash.style.transition = `opacity ${half}ms ease-in-out`;
+      flash.style.opacity = String(opacity);
+    }
+    offTimer = setTimeout(() => {
       flash.style.opacity = '0';
     }, half);
   });
 
   window.hitoiki.onTick((remainingSeconds) => {
     if (!document.body.classList.contains('breaking')) {
-      clearTimeout(fadeOutTimer);
+      clearTimeout(offTimer);
       flash.style.transition = 'none';
       flash.style.opacity = '0';
       document.body.classList.add('breaking');

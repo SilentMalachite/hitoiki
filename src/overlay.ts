@@ -45,7 +45,9 @@ export class Overlay {
     this.aborted = false;
     try {
       this.displays = screen.getAllDisplays();
-      this.windows = this.displays.map((display) => this.createWindow(display));
+      this.windows = [];
+      // createWindow registers each window as soon as it exists, so a failure midway still closes the earlier ones.
+      for (const display of this.displays) this.createWindow(display);
       await Promise.all(this.windows.map((win) => win.loadFile(OVERLAY_HTML)));
       await this.blink(config);
       if (this.aborted) return;
@@ -73,14 +75,12 @@ export class Overlay {
       periodMs,
     };
 
-    // In fade mode the windows stay up and the renderer animates the opacity.
-    if (config.fadeMode) this.forEachWindow((win) => win.showInactive());
+    // The windows stay up for the whole flash and the renderer switches the opacity. Never hiding them
+    // means no stale flash frame can reappear when the break view is shown.
+    this.forEachWindow((win) => win.showInactive());
     for (let i = 0; i < config.flashCount && !this.aborted; i++) {
       this.forEachWindow((win) => win.webContents.send(Channel.Flash, message));
-      if (!config.fadeMode) this.forEachWindow((win) => win.showInactive());
-      await delay(periodMs / 2);
-      if (!config.fadeMode) this.forEachWindow((win) => win.hide());
-      await delay(periodMs / 2);
+      await delay(periodMs);
     }
   }
 
@@ -102,7 +102,7 @@ export class Overlay {
 
       this.endBreak = finish;
       timer = setInterval(tick, TICK_MS);
-      // First tick before showing, so the renderer switches from the flash to the break view.
+      // Switch the renderer to the break view, then activate the windows so they take keys and clicks.
       tick();
       this.forEachWindow((win) => win.show());
       this.focusOverlay();
@@ -134,7 +134,8 @@ export class Overlay {
     this.endBreak?.();
   }
 
-  private createWindow(display: Display): BrowserWindow {
+  /** Creates the overlay window for one display and registers it in `windows` right away. */
+  private createWindow(display: Display): void {
     const { bounds } = display;
     const win = new BrowserWindow({
       ...bounds,
@@ -145,6 +146,8 @@ export class Overlay {
       skipTaskbar: true,
       hasShadow: false,
       resizable: false,
+      // Otherwise macOS may push the window below the menu bar and leave the top edge uncovered.
+      enableLargerThanScreen: true,
       webPreferences: {
         preload: PRELOAD_JS,
         contextIsolation: true,
@@ -152,6 +155,7 @@ export class Overlay {
         sandbox: true,
       },
     });
+    this.windows.push(win);
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // Match the display exactly instead of setFullScreen(true), which breaks transparency on Windows.
@@ -164,7 +168,6 @@ export class Overlay {
     // Windows log-off/shutdown does not emit before-quit; release the overlay here so it cannot block the session end.
     win.on('query-session-end', () => this.dispose());
     win.on('session-end', () => this.dispose());
-    return win;
   }
 
   private closeAll(): void {
