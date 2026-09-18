@@ -1,0 +1,17 @@
+{
+  "name": "hitoiki",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Resident app that flashes the screen and blocks input to break hyperfocus",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "start": "electron dist/main.js"
+  },
+  "devDependencies": {
+    "electron": "^44.4.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

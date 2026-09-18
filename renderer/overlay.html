@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Hitoiki</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    user-select: none;
+    cursor: default;
+  }
+  body.breaking {
+    background: rgba(0, 0, 0, 0.85);
+  }
+  #flash {
+    position: fixed;
+    inset: 0;
+    opacity: 0;
+  }
+  #break {
+    display: none;
+    position: fixed;
+    inset: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    color: #FFFFFF;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+  body.breaking #break {
+    display: flex;
+  }
+  #countdown {
+    font-size: 160px;
+    font-weight: 200;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  #hold {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 16px;
+    opacity: 0.6;
+  }
+  #ring {
+    width: 28px;
+    height: 28px;
+    transform: rotate(-90deg);
+  }
+  #ring circle {
+    fill: none;
+    stroke-width: 3;
+  }
+  #ring .track {
+    stroke: rgba(255, 255, 255, 0.25);
+  }
+  #ring .progress {
+    stroke: #FFFFFF;
+    stroke-dasharray: 62.83;
+    stroke-dashoffset: 62.83;
+  }
+  #ring.holding .progress {
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 3s linear;
+  }
+</style>
+</head>
+<body>
+<div id="flash"></div>
+<div id="break">
+  <div id="countdown"></div>
+  <div id="hold">
+    <svg id="ring" viewBox="0 0 24 24" aria-hidden="true">
+      <circle class="track" cx="12" cy="12" r="10"></circle>
+      <circle class="progress" cx="12" cy="12" r="10"></circle>
+    </svg>
+    <span>Esc を 3 秒長押しで解除</span>
+  </div>
+</div>
+<script>
+  'use strict';
+  const HOLD_MS = 3000;
+  const flash = document.getElementById('flash');
+  const countdown = document.getElementById('countdown');
+  const ring = document.getElementById('ring');
+  let fadeOutTimer = null;
+  let holdTimer = null;
+
+  window.hitoiki.onFlash(({ color, opacity, fade, periodMs }) => {
+    clearTimeout(fadeOutTimer);
+    flash.style.backgroundColor = color;
+
+    if (!fade) {
+      // Main blinks by showing/hiding the window; just paint at full strength.
+      flash.style.transition = 'none';
+      flash.style.opacity = String(opacity);
+      return;
+    }
+
+    const half = periodMs / 2;
+    flash.style.transition = 'none';
+    flash.style.opacity = '0';
+    void flash.offsetWidth; // flush styles so the transition restarts from 0
+    flash.style.transition = `opacity ${half}ms ease-in-out`;
+    flash.style.opacity = String(opacity);
+    fadeOutTimer = setTimeout(() => {
+      flash.style.opacity = '0';
+    }, half);
+  });
+
+  window.hitoiki.onTick((remainingSeconds) => {
+    if (!document.body.classList.contains('breaking')) {
+      clearTimeout(fadeOutTimer);
+      flash.style.transition = 'none';
+      flash.style.opacity = '0';
+      document.body.classList.add('breaking');
+    }
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = String(remainingSeconds % 60).padStart(2, '0');
+    countdown.textContent = `${minutes}:${seconds}`;
+  });
+
+  function startHold() {
+    if (holdTimer !== null) return;
+    ring.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      window.hitoiki.cancel();
+    }, HOLD_MS);
+  }
+
+  function resetHold() {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    ring.classList.remove('holding');
+  }
+
+  window.addEventListener('keydown', (event) => {
+    if (!document.body.classList.contains('breaking')) return;
+    event.preventDefault();
+    // Auto-repeat keydowns must not restart the hold.
+    if (event.key === 'Escape' && !event.repeat) startHold();
+  });
+  window.addEventListener('keyup', (event) => {
+    if (event.key === 'Escape') resetHold();
+  });
+  window.addEventListener('blur', resetHold);
+</script>
+</body>
+</html>
