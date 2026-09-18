@@ -156,7 +156,7 @@ function describeRange(key: NumericKey): string {
 export function loadConfig(filePath: string): Config {
   let text: string;
   try {
-    text = fs.readFileSync(filePath, 'utf8');
+    text = stripBom(fs.readFileSync(filePath, 'utf8'));
   } catch (err) {
     if (isErrnoCode(err, 'ENOENT')) {
       writeJson(filePath, DEFAULT_CONFIG);
@@ -194,7 +194,7 @@ export function saveBreakSeconds(filePath: string, seconds: number): boolean {
 
   let raw: Record<string, unknown>;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const parsed: unknown = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf8')));
     if (!isPlainObject(parsed)) {
       console.error(`[config] ${filePath} is not a JSON object; breakSeconds not saved`);
       return false;
@@ -221,6 +221,11 @@ function writeJson(filePath: string, value: unknown): boolean {
     console.error(`[config] cannot write ${filePath}: ${describe(err)}`);
     return false;
   }
+}
+
+/** Editors such as Windows Notepad may prepend a UTF-8 BOM, which JSON.parse rejects. */
+function stripBom(text: string): string {
+  return text.startsWith('﻿') ? text.slice(1) : text;
 }
 
 function cloneDefaults(): Config {

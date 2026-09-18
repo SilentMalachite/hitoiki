@@ -64,6 +64,13 @@ describe('loadConfig', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  it('reads a file that starts with a UTF-8 BOM', () => {
+    const file = writeConfig(`﻿${JSON.stringify({ breakSeconds: 60 })}`);
+
+    expect(loadConfig(file)).toEqual({ ...DEFAULT_CONFIG, breakSeconds: 60 });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it('clamps flashIntervalMs below 334 up to 334', () => {
     const file = writeConfig(JSON.stringify({ flashIntervalMs: 100 }));
 
@@ -206,6 +213,16 @@ describe('saveBreakSeconds', () => {
       { time: '12:00', breakSeconds: 3600 },
     ]);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('saves into a file with a BOM, keeping other keys and dropping the BOM', () => {
+    const file = writeConfig(`﻿${JSON.stringify({ intervalMinutes: 30, breakSeconds: 180 })}`);
+
+    expect(saveBreakSeconds(file, 300)).toBe(true);
+
+    const text = fs.readFileSync(file, 'utf8');
+    expect(text.startsWith('﻿')).toBe(false);
+    expect(JSON.parse(text)).toEqual({ intervalMinutes: 30, breakSeconds: 300 });
   });
 
   it('adds breakSeconds when the file does not have it', () => {

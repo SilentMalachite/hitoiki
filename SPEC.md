@@ -82,6 +82,7 @@
 ### F5 設定
 - パス: `path.join(app.getPath('userData'), 'config.json')`。
 - 無ければ既定値で生成する。壊れていれば既定値で起動し、標準エラーに理由を出す。
+- 先頭の UTF-8 BOM は無視する。書き込むときは BOM を付けない。
 - スキーマ（記入例。`clockTimes` の既定は空）:
 
 ```json
