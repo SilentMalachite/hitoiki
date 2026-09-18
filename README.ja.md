@@ -1,5 +1,8 @@
 # Hitoiki
 
+[![CI](https://github.com/SilentMalachite/hitoiki/actions/workflows/ci.yml/badge.svg)](https://github.com/SilentMalachite/hitoiki/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/SilentMalachite/hitoiki/dev/typescript?logo=typescript&logoColor=white&label=TypeScript&color=3178C6)](https://www.typescriptlang.org/)
+
 [English](README.md) | 日本語
 
 Hitoiki（一息）は、過集中を止めるための macOS / Windows 用の常駐アプリです。設定した間隔または時刻に
