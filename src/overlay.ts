@@ -19,15 +19,27 @@ const PRELOAD_JS = path.join(__dirname, 'preload.js');
  * No window exists while idle.
  */
 export class Overlay {
-  private windows: BrowserWindow[] = [];
-  /** Parallel to `windows`. */
-  private displays: Display[] = [];
+  /** Display id -> its overlay window. */
+  private readonly windows = new Map<number, BrowserWindow>();
   private current: OverlayState = 'idle';
   /** Set while we close the windows ourselves; any other close is refused. */
   private closing = false;
   /** Set by dispose() to stop the current run early. */
   private aborted = false;
   private endBreak: (() => void) | null = null;
+  private breakEndsAt: number | null = null;
+
+  // Display listeners, attached only while the overlay is up so nothing listens while idle.
+  private readonly onDisplayAdded = (_event: unknown, display: Display): void => {
+    void this.addDisplay(display);
+  };
+  private readonly onDisplayRemoved = (_event: unknown, display: Display): void => {
+    this.removeDisplay(display);
+  };
+  private readonly onDisplayChanged = (_event: unknown, display: Display): void => {
+    const win = this.windows.get(display.id);
+    if (win !== undefined && !win.isDestroyed()) win.setBounds(display.bounds);
+  };
 
   constructor(private readonly now: () => Date) {
     ipcMain.on(Channel.Cancel, (event) => this.handleCancel(event));
@@ -44,11 +56,10 @@ export class Overlay {
     this.closing = false;
     this.aborted = false;
     try {
-      this.displays = screen.getAllDisplays();
-      this.windows = [];
+      this.watchDisplays();
       // createWindow registers each window as soon as it exists, so a failure midway still closes the earlier ones.
-      for (const display of this.displays) this.createWindow(display);
-      await Promise.all(this.windows.map((win) => win.loadFile(OVERLAY_HTML)));
+      for (const display of screen.getAllDisplays()) this.createWindow(display);
+      await Promise.all(this.liveWindows().map((win) => win.loadFile(OVERLAY_HTML)));
       await this.blink(config);
       if (this.aborted) return;
       this.current = 'breaking';
@@ -86,16 +97,17 @@ export class Overlay {
 
   /** Counts down until the break is over or cancelled. */
   private holdBreak(breakSeconds: number): Promise<void> {
-    const endsAt = this.now().getTime() + breakSeconds * 1000;
+    this.breakEndsAt = this.now().getTime() + breakSeconds * 1000;
     return new Promise((resolve) => {
       let timer: ReturnType<typeof setInterval> | undefined;
       const finish = (): void => {
         clearInterval(timer);
         this.endBreak = null;
+        this.breakEndsAt = null;
         resolve();
       };
       const tick = (): void => {
-        const remaining = Math.max(0, Math.ceil((endsAt - this.now().getTime()) / 1000));
+        const remaining = this.remainingSeconds();
         this.forEachWindow((win) => win.webContents.send(Channel.Tick, remaining));
         if (remaining === 0) finish();
       };
@@ -109,11 +121,17 @@ export class Overlay {
     });
   }
 
+  private remainingSeconds(): number {
+    if (this.breakEndsAt === null) return 0;
+    return Math.max(0, Math.ceil((this.breakEndsAt - this.now().getTime()) / 1000));
+  }
+
   /** Focuses the window on the display under the cursor so it receives keys and clicks. */
   private focusOverlay(): void {
     const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    const index = this.displays.findIndex((display) => display.id === cursorDisplay.id);
-    const target = [this.windows[index], ...this.windows].find((win) => win !== undefined && !win.isDestroyed());
+    const target = [this.windows.get(cursorDisplay.id), ...this.liveWindows()].find(
+      (win) => win !== undefined && !win.isDestroyed(),
+    );
     if (process.platform === 'darwin') app.focus({ steal: true });
     target?.focus();
   }
@@ -123,19 +141,60 @@ export class Overlay {
     if (this.current !== 'breaking') return;
     setTimeout(() => {
       if (this.current !== 'breaking') return;
-      if (this.windows.some((win) => !win.isDestroyed() && win.isFocused())) return;
+      if (this.liveWindows().some((win) => win.isFocused())) return;
       this.focusOverlay();
     }, REFOCUS_DELAY_MS);
   }
 
   private handleCancel(event: IpcMainEvent): void {
     if (this.current !== 'breaking') return;
-    if (!this.windows.some((win) => !win.isDestroyed() && win.webContents === event.sender)) return;
+    if (!this.liveWindows().some((win) => win.webContents === event.sender)) return;
     this.endBreak?.();
   }
 
-  /** Creates the overlay window for one display and registers it in `windows` right away. */
-  private createWindow(display: Display): void {
+  private watchDisplays(): void {
+    screen.on('display-added', this.onDisplayAdded);
+    screen.on('display-removed', this.onDisplayRemoved);
+    screen.on('display-metrics-changed', this.onDisplayChanged);
+  }
+
+  private unwatchDisplays(): void {
+    screen.off('display-added', this.onDisplayAdded);
+    screen.off('display-removed', this.onDisplayRemoved);
+    screen.off('display-metrics-changed', this.onDisplayChanged);
+  }
+
+  /** A display was connected while the overlay is up: cover it too. */
+  private async addDisplay(display: Display): Promise<void> {
+    if (this.windows.has(display.id)) return;
+    const win = this.createWindow(display);
+    await win.loadFile(OVERLAY_HTML).catch((err: unknown) => {
+      // Loading is aborted when the window was discarded meanwhile (display removed again, or overlay closed).
+      if (this.windows.get(display.id) === win && !win.isDestroyed()) throw err;
+    });
+    if (this.windows.get(display.id) !== win || win.isDestroyed()) return;
+    if (this.current === 'breaking') {
+      win.webContents.send(Channel.Tick, this.remainingSeconds());
+      win.show();
+    } else {
+      win.showInactive(); // still flashing: it joins the remaining flash cycles
+    }
+  }
+
+  /** A display was disconnected: drop its window, keeping keyboard focus on the overlay. */
+  private removeDisplay(display: Display): void {
+    const win = this.windows.get(display.id);
+    if (win === undefined) return;
+    this.windows.delete(display.id);
+    if (win.isDestroyed()) return;
+    const hadFocus = win.isFocused();
+    // destroy() skips the 'close' event, which refuses to close the overlay.
+    win.destroy();
+    if (hadFocus && this.current === 'breaking') this.focusOverlay();
+  }
+
+  /** Creates the overlay window for one display and registers it right away. */
+  private createWindow(display: Display): BrowserWindow {
     const { bounds } = display;
     const win = new BrowserWindow({
       ...bounds,
@@ -155,7 +214,7 @@ export class Overlay {
         sandbox: true,
       },
     });
-    this.windows.push(win);
+    this.windows.set(display.id, win);
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // Match the display exactly instead of setFullScreen(true), which breaks transparency on Windows.
@@ -168,19 +227,22 @@ export class Overlay {
     // Windows log-off/shutdown does not emit before-quit; release the overlay here so it cannot block the session end.
     win.on('query-session-end', () => this.dispose());
     win.on('session-end', () => this.dispose());
+    return win;
   }
 
   private closeAll(): void {
+    this.unwatchDisplays();
     this.closing = true;
     this.forEachWindow((win) => win.close());
-    this.windows = [];
-    this.displays = [];
+    this.windows.clear();
+  }
+
+  private liveWindows(): BrowserWindow[] {
+    return [...this.windows.values()].filter((win) => !win.isDestroyed());
   }
 
   private forEachWindow(action: (win: BrowserWindow) => void): void {
-    for (const win of this.windows) {
-      if (!win.isDestroyed()) action(win);
-    }
+    for (const win of this.liveWindows()) action(win);
   }
 }
 

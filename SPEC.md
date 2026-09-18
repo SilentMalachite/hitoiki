@@ -43,6 +43,10 @@
 
 ### F2 フラッシュ
 - 全モニター同時（`screen.getAllDisplays()` の各 `bounds` に 1 枚ずつ `BrowserWindow`）。
+- オーバーレイ表示中（フラッシュ・休憩とも）にディスプレイが変わったら追従する。追加 → ウィンドウを
+  作る（休憩中は残り時間を表示してから出す）、削除 → そのウィンドウを破棄する（フォーカスがあれば
+  残りのウィンドウへ移す）、解像度・配置の変更 → `bounds` を合わせ直す。`screen` のイベントは
+  表示中だけ購読し、待機中は購読しない。
 - ウィンドウ設定: `frame:false, transparent:true, alwaysOnTop:true, skipTaskbar:true,
   hasShadow:false, resizable:false, enableLargerThanScreen:true`（最後は macOS でメニューバーの下へ
   ずらされず上端まで覆うため）。生成後に `setAlwaysOnTop(true, 'screen-saver')` と
