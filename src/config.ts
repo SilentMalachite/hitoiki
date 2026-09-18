@@ -213,11 +213,20 @@ export function saveBreakSeconds(filePath: string, seconds: number): boolean {
 }
 
 function writeJson(filePath: string, value: unknown): boolean {
+  // Write a sibling temp file in full, then rename it over the target:
+  // a failure midway (e.g. disk full) never leaves a truncated config.json behind.
+  const tempPath = `${filePath}.tmp`;
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.renameSync(tempPath, filePath);
     return true;
   } catch (err) {
+    try {
+      fs.rmSync(tempPath, { force: true });
+    } catch {
+      // Keep reporting the original error below.
+    }
     console.error(`[config] cannot write ${filePath}: ${describe(err)}`);
     return false;
   }
@@ -225,7 +234,7 @@ function writeJson(filePath: string, value: unknown): boolean {
 
 /** Editors such as Windows Notepad may prepend a UTF-8 BOM, which JSON.parse rejects. */
 function stripBom(text: string): string {
-  return text.startsWith('﻿') ? text.slice(1) : text;
+  return text.startsWith('\uFEFF') ? text.slice(1) : text;
 }
 
 function cloneDefaults(): Config {

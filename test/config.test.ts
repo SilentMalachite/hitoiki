@@ -4,6 +4,22 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG, loadConfig, saveBreakSeconds } from '../src/config';
 
+const writeFailure = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    // When enabled, simulates a disk filling up mid-write: part of the data lands, then the write throws.
+    writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => {
+      if (!writeFailure.enabled) return actual.writeFileSync(...args);
+      const [file, data, options] = args;
+      actual.writeFileSync(file, String(data).slice(0, 10), options);
+      throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    },
+  };
+});
+
 let dir: string;
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -13,6 +29,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  writeFailure.enabled = false;
   errorSpy.mockRestore();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -65,7 +82,7 @@ describe('loadConfig', () => {
   });
 
   it('reads a file that starts with a UTF-8 BOM', () => {
-    const file = writeConfig(`﻿${JSON.stringify({ breakSeconds: 60 })}`);
+    const file = writeConfig(`\uFEFF${JSON.stringify({ breakSeconds: 60 })}`);
 
     expect(loadConfig(file)).toEqual({ ...DEFAULT_CONFIG, breakSeconds: 60 });
     expect(errorSpy).not.toHaveBeenCalled();
@@ -216,12 +233,12 @@ describe('saveBreakSeconds', () => {
   });
 
   it('saves into a file with a BOM, keeping other keys and dropping the BOM', () => {
-    const file = writeConfig(`﻿${JSON.stringify({ intervalMinutes: 30, breakSeconds: 180 })}`);
+    const file = writeConfig(`\uFEFF${JSON.stringify({ intervalMinutes: 30, breakSeconds: 180 })}`);
 
     expect(saveBreakSeconds(file, 300)).toBe(true);
 
     const text = fs.readFileSync(file, 'utf8');
-    expect(text.startsWith('﻿')).toBe(false);
+    expect(text.startsWith('\uFEFF')).toBe(false);
     expect(JSON.parse(text)).toEqual({ intervalMinutes: 30, breakSeconds: 300 });
   });
 
@@ -247,6 +264,26 @@ describe('saveBreakSeconds', () => {
 
     saveBreakSeconds(file, 99999);
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ breakSeconds: 3600 });
+  });
+
+  it('keeps the original file when the write fails midway', () => {
+    const original = JSON.stringify({ intervalMinutes: 30, breakSeconds: 180 });
+    const file = writeConfig(original);
+
+    writeFailure.enabled = true;
+    expect(saveBreakSeconds(file, 600)).toBe(false);
+    writeFailure.enabled = false;
+
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    expect(fs.readdirSync(dir)).toEqual(['config.json']);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('ENOSPC'));
+  });
+
+  it('leaves no temporary file after a successful save', () => {
+    const file = writeConfig('{}');
+
+    expect(saveBreakSeconds(file, 600)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(['config.json']);
   });
 
   it('leaves a broken file untouched', () => {
