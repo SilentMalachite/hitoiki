@@ -51,7 +51,11 @@ function start(): void {
     if (overlay.state !== 'idle') return;
     const run = overlay.run(config, breakSeconds);
     refreshTray();
-    void run.finally(refreshTray);
+    void run.finally(() => {
+      // Drop fires that fell due during the break, whatever order the delayed timers run in.
+      scheduler.refresh();
+      refreshTray();
+    });
   }
 
   /** Restarts interval counting from now. Used on launch, resume from pause and wake from sleep. */

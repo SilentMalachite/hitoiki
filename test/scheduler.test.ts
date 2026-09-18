@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextFireTime, Scheduler, type ScheduleConfig } from '../src/scheduler';
 
 const MINUTE = 60_000;
@@ -179,6 +179,23 @@ describe('Scheduler', () => {
     expect(onFire).toHaveBeenCalledOnce();
   });
 
+  it('drops a fire that fell due during a break when refreshed at the break end', () => {
+    const scheduler = createScheduler();
+    scheduler.start(schedule(), at(9, 0)); // due at 09:50
+
+    vi.advanceTimersByTime(49 * MINUTE); // 09:49, a break starts
+    breaking = true;
+    // The main process stalls: the wall clock reaches 09:53 before the 09:50 timer callback runs,
+    // and the countdown callback runs first and ends the break.
+    vi.setSystemTime(at(9, 53));
+    breaking = false;
+    scheduler.refresh();
+    vi.advanceTimersByTime(2 * MINUTE);
+
+    expect(onFire).not.toHaveBeenCalled();
+    expect(scheduler.next).toEqual(at(10, 40));
+  });
+
   it('drops fires that arrive during a break and keeps scheduling', () => {
     const scheduler = createScheduler();
     scheduler.start(schedule(), at(9, 0));
@@ -222,5 +239,53 @@ describe('Scheduler', () => {
 
     expect(scheduler.next).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('nextFireTime across DST (America/New_York)', () => {
+  const originalTz = process.env.TZ;
+  const utc = (iso: string): Date => new Date(iso);
+  const clockOnly = (time: string): ScheduleConfig =>
+    schedule({ intervalMinutes: 0, clockTimes: [{ time, breakSeconds: 180 }] });
+
+  beforeAll(() => {
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterAll(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  it('runs in a zone with DST', () => {
+    expect(utc('2026-07-01T12:00:00Z').getTimezoneOffset()).toBe(240);
+    expect(utc('2026-12-01T12:00:00Z').getTimezoneOffset()).toBe(300);
+  });
+
+  // 2026-11-01: 02:00 EDT falls back to 01:00 EST, so 01:30 happens at 05:30Z and again at 06:30Z.
+  it('fires at the first 01:30 on the day DST ends', () => {
+    const after = utc('2026-11-01T04:00:00Z');
+
+    expect(nextFireTime(after, after, clockOnly('01:30'))?.at).toEqual(utc('2026-11-01T05:30:00Z'));
+  });
+
+  it('fires at the repeated 01:30 when started between the two', () => {
+    const after = utc('2026-11-01T06:15:00Z');
+
+    expect(nextFireTime(after, after, clockOnly('01:30'))?.at).toEqual(utc('2026-11-01T06:30:00Z'));
+  });
+
+  it('fires a repeated time only once that day', () => {
+    const fired = utc('2026-11-01T05:30:00Z');
+    const endOfFiredMinute = new Date(fired.getTime() + MINUTE - 1);
+
+    expect(nextFireTime(endOfFiredMinute, fired, clockOnly('01:30'), fired)?.at).toEqual(utc('2026-11-02T06:30:00Z'));
+  });
+
+  // 2026-03-08: 02:00 EST springs forward to 03:00 EDT, so 02:30 does not exist.
+  it('shifts a skipped time forward on the day DST starts', () => {
+    const after = utc('2026-03-08T05:00:00Z');
+
+    expect(nextFireTime(after, after, clockOnly('02:30'))?.at).toEqual(utc('2026-03-08T07:30:00Z'));
   });
 });
