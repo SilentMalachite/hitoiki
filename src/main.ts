@@ -13,10 +13,14 @@ const now = (): Date => new Date(Date.now());
 // Module-level reference so the tray icon is not garbage-collected.
 let tray: Tray | null = null;
 
-// Resident app: keep running with no windows.
-app.on('window-all-closed', () => {});
-
-void app.whenReady().then(start);
+// Single instance: a second one would double every break and fight over focus.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  // Resident app: keep running with no windows.
+  app.on('window-all-closed', () => {});
+  void app.whenReady().then(start);
+}
 
 function start(): void {
   app.dock?.hide();

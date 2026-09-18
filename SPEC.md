@@ -59,13 +59,16 @@
   OS の入力フックは使わないため、切り替え直後の一瞬のキー入力までは防げない。
 - オーバーレイ表示中（フラッシュ・休憩とも）は、自前以外の close（Alt+F4 / Cmd+W 等）を
   `preventDefault` で拒否する。ウィンドウを閉じるのはカウントダウン終了と緊急解除のとき、
-  およびアプリ終了時（`before-quit`。終了・ログアウト・シャットダウンを止めないため）だけ。
+  およびアプリ終了時（`before-quit`。Windows のログオフ・シャットダウンは `before-quit` が来ないため
+  ウィンドウの `query-session-end` / `session-end`。終了・ログアウト・シャットダウンを止めないため）だけ。
 - 緊急解除: **Esc を 3 秒長押し**。押している間は進捗をリング表示する。
   keydown/keyup はレンダラーで検出し、preload 経由で main に `overlay:cancel` を送る。
 - カウントダウン終了で全ウィンドウを `close()` し、次のスケジュールへ戻る。
 
 ### F4 トレイ
 - 常駐。メインウィンドウは持たない。`window-all-closed` で終了しない。
+- 二重起動しない。`app.requestSingleInstanceLock()` が取れなければ何もせず終了する
+  （二重に休憩が発火し、フォーカスを奪い合うため）。
 - macOS では Dock に出さない（`app.dock.hide()`）。
 - アプリケーションメニューは `Menu.setApplicationMenu(null)` で無くす（Cmd+Q / Cmd+W で休憩を
   抜けられないように）。終了はトレイの「終了」から行う。

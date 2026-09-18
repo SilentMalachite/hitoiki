@@ -161,6 +161,9 @@ export class Overlay {
       if (!this.closing) event.preventDefault();
     });
     win.on('blur', () => this.refocusIfLost());
+    // Windows log-off/shutdown does not emit before-quit; release the overlay here so it cannot block the session end.
+    win.on('query-session-end', () => this.dispose());
+    win.on('session-end', () => this.dispose());
     return win;
   }
 
