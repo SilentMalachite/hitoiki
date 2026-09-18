@@ -384,4 +384,21 @@ describe('Overlay display changes', () => {
     expect(win(2).destroyed).toBe(true);
     expect(win(2).show).not.toHaveBeenCalled();
   });
+
+  it('carries on with the other displays when one is removed while the first windows load', async () => {
+    let rejectLoad: (reason: Error) => void = () => {};
+    fake.FakeWindow.nextLoad = () => new Promise<void>((_, reject) => (rejectLoad = reject));
+
+    run = overlay.run(FLASH, 10);
+    fake.screen.displays = [SECONDARY];
+    fake.screen.cursorDisplayId = 2;
+    fake.screen.emit('display-removed', {}, PRIMARY);
+    rejectLoad(new Error('ERR_ABORTED (-3) loading overlay.html'));
+    await vi.advanceTimersByTimeAsync(FLASH.flashCount * FLASH.flashIntervalMs);
+
+    expect(win(0).destroyed).toBe(true);
+    expect(sent(win(1), 'overlay:flash')).toHaveLength(FLASH.flashCount);
+    expect(overlay.state).toBe('breaking');
+    expect(win(1).focused).toBe(true);
+  });
 });

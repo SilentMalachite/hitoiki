@@ -59,7 +59,7 @@ export class Overlay {
       this.watchDisplays();
       // createWindow registers each window as soon as it exists, so a failure midway still closes the earlier ones.
       for (const display of screen.getAllDisplays()) this.createWindow(display);
-      await Promise.all(this.liveWindows().map((win) => win.loadFile(OVERLAY_HTML)));
+      await Promise.all([...this.windows].map(([displayId, win]) => this.load(displayId, win)));
       await this.blink(config);
       if (this.aborted) return;
       this.current = 'breaking';
@@ -168,17 +168,23 @@ export class Overlay {
   private async addDisplay(display: Display): Promise<void> {
     if (this.windows.has(display.id)) return;
     const win = this.createWindow(display);
-    await win.loadFile(OVERLAY_HTML).catch((err: unknown) => {
-      // Loading is aborted when the window was discarded meanwhile (display removed again, or overlay closed).
-      if (this.windows.get(display.id) === win && !win.isDestroyed()) throw err;
-    });
-    if (this.windows.get(display.id) !== win || win.isDestroyed()) return;
+    if (!(await this.load(display.id, win))) return;
     if (this.current === 'breaking') {
       win.webContents.send(Channel.Tick, this.remainingSeconds());
       win.show();
     } else {
       win.showInactive(); // still flashing: it joins the remaining flash cycles
     }
+  }
+
+  /** Loads the overlay page into a display's window. Resolves whether the window is still in use afterwards. */
+  private async load(displayId: number, win: BrowserWindow): Promise<boolean> {
+    const inUse = (): boolean => this.windows.get(displayId) === win && !win.isDestroyed();
+    await win.loadFile(OVERLAY_HTML).catch((err: unknown) => {
+      // Loading is aborted when the window was discarded meanwhile (display removed, or overlay closed).
+      if (inUse()) throw err;
+    });
+    return inUse();
   }
 
   /** A display was disconnected: drop its window, keeping keyboard focus on the overlay. */
