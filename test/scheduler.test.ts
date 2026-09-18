@@ -147,6 +147,38 @@ describe('Scheduler', () => {
     expect(scheduler.next).toEqual(at(12, 50, 30));
   });
 
+  it('does not fire again in the same minute after start() is called again', () => {
+    vi.setSystemTime(at(11, 50));
+    const scheduler = createScheduler();
+    // Interval ticks land on 12:00:30; the clock fires at 12:00:00 with a 10-second break.
+    const config = schedule({ clockTimes: [{ time: '12:00', breakSeconds: 10 }] });
+    scheduler.start(config, at(11, 10, 30));
+
+    vi.advanceTimersByTime(10 * MINUTE + 20_000); // 12:00:20
+    expect(onFire).toHaveBeenCalledOnce();
+
+    scheduler.start(config, at(11, 10, 30)); // e.g. a config reload, which keeps the anchor
+    vi.advanceTimersByTime(40_000); // past 12:00:30
+
+    expect(onFire).toHaveBeenCalledOnce();
+    expect(scheduler.next).toEqual(at(12, 50, 30));
+  });
+
+  it('does not fire early when the wall clock is set back', () => {
+    vi.setSystemTime(at(11, 59));
+    const scheduler = createScheduler();
+    scheduler.start(schedule({ intervalMinutes: 0, clockTimes: [{ time: '12:00', breakSeconds: 180 }] }), at(11, 59));
+
+    vi.setSystemTime(at(11, 0)); // the pending timer keeps its 1-minute delay
+    vi.advanceTimersByTime(MINUTE);
+
+    expect(onFire).not.toHaveBeenCalled();
+    expect(scheduler.next).toEqual(at(12, 0));
+
+    vi.advanceTimersByTime(59 * MINUTE);
+    expect(onFire).toHaveBeenCalledOnce();
+  });
+
   it('drops fires that arrive during a break and keeps scheduling', () => {
     const scheduler = createScheduler();
     scheduler.start(schedule(), at(9, 0));

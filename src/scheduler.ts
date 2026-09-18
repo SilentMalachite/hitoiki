@@ -62,6 +62,8 @@ export class Scheduler {
   private config: ScheduleConfig | null = null;
   private anchor: Date | null = null;
   private pending: Fire | null = null;
+  /** Last ms of the minute that last fired (or was dropped). Kept across start() so a minute never fires twice. */
+  private lastFiredMinuteEnd = 0;
 
   constructor(private readonly deps: SchedulerDeps) {}
 
@@ -88,7 +90,8 @@ export class Scheduler {
 
   private arm(after: Date): void {
     if (this.config === null || this.anchor === null) return;
-    this.pending = nextFireTime(after, this.anchor, this.config);
+    const from = new Date(Math.max(after.getTime(), this.lastFiredMinuteEnd));
+    this.pending = nextFireTime(from, this.anchor, this.config);
     if (this.pending === null) return;
     const delay = Math.max(0, this.pending.at.getTime() - this.deps.now().getTime());
     this.timer = setTimeout(() => this.handleTimeout(), delay);
@@ -99,9 +102,16 @@ export class Scheduler {
     this.timer = null;
     if (fire === null) return;
 
-    // Search from the end of the fired minute so that other fires in the same minute are merged.
-    const endOfMinute = startOfMinute(fire.at.getTime()) + MINUTE_MS - 1;
-    this.arm(new Date(Math.max(this.deps.now().getTime(), endOfMinute)));
+    const now = this.deps.now();
+    // The timer runs on monotonic time. If the wall clock was set back, it is not time yet: recompute instead.
+    if (now.getTime() < fire.at.getTime()) {
+      this.arm(now);
+      return;
+    }
+
+    // Later searches start after this minute, so other fires in the same minute are merged.
+    this.lastFiredMinuteEnd = startOfMinute(fire.at.getTime()) + MINUTE_MS - 1;
+    this.arm(now);
 
     if (!this.deps.isBreaking()) this.deps.onFire(fire.breakSeconds);
   }
