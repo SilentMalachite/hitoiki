@@ -155,6 +155,8 @@ renderer/
 test/
   scheduler.test.ts
   config.test.ts
+  overlay.test.ts    electron をモックして状態遷移・ウィンドウ・ディスプレイ変化を検証
+  main.test.ts       electron と Overlay をモックして起動・トレイ・停止/再開・スリープ復帰を検証
 dist/                tsc 出力（git 管理外）
 ```
 
