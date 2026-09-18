@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Resident app that flashes the screen and blocks input to break hyperfocus",
+  "license": "MIT",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -19,7 +20,8 @@
       "output": "release"
     },
     "mac": {
-      "identity": null
+      "identity": "-",
+      "hardenedRuntime": false
     }
   },
   "devDependencies": {
