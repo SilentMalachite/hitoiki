@@ -30,6 +30,23 @@ break is over.
 Hitoiki is not signed with an Apple Developer ID or a Windows code signing certificate, so your OS asks you
 to confirm the first launch of a downloaded copy.
 
+### Download
+
+Get the file for your OS from the [latest release](https://github.com/SilentMalachite/hitoiki/releases/latest).
+
+| OS | File |
+|---|---|
+| macOS (Apple silicon) | `hitoiki-<version>-arm64.dmg`, or the same app zipped as `hitoiki-<version>-arm64-mac.zip` |
+| Windows | `hitoiki.Setup.<version>.exe` |
+
+There is no download for Intel Macs. Build it yourself instead (see below).
+
+- **macOS**: open the `.dmg` and drag `hitoiki.app` onto **Applications**. With the `.zip`, unzip it and move
+  `hitoiki.app` to your Applications folder. Then open it as described in
+  [First launch on macOS](#first-launch-on-macos).
+- **Windows**: run the installer. It installs Hitoiki for your user account and starts it. If SmartScreen
+  stops it, see [First launch on Windows](#first-launch-on-windows).
+
 ### Build it yourself
 
 Requires Node.js 22.

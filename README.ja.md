@@ -28,6 +28,23 @@ Hitoiki（一息）は、過集中を止めるための macOS / Windows 用の�
 Apple の Developer ID や Windows のコード署名証明書では署名していません。そのため、ダウンロードした
 アプリを初めて起動するときは OS の確認を通す必要があります。
 
+### ダウンロード
+
+[最新のリリース](https://github.com/SilentMalachite/hitoiki/releases/latest) から、OS に合ったファイルを取得します。
+
+| OS | ファイル |
+|---|---|
+| macOS（Apple silicon） | `hitoiki-<version>-arm64.dmg`。同じアプリを zip にした `hitoiki-<version>-arm64-mac.zip` もあります |
+| Windows | `hitoiki.Setup.<version>.exe` |
+
+Intel Mac 向けの配布物はありません。下の「自分でビルドする」の手順でビルドしてください。
+
+- **macOS**: `.dmg` を開き、`hitoiki.app` を隣の **Applications** へドラッグします。`.zip` の場合は展開して、
+  `hitoiki.app` を **アプリケーション** フォルダへ移します。そのあと
+  [macOS での初回起動](#macos-での初回起動) の手順で開きます。
+- **Windows**: インストーラを実行します。ログイン中のユーザー向けにインストールされ、そのまま起動します。
+  SmartScreen に止められた場合は [Windows での初回起動](#windows-での初回起動) を見てください。
+
 ### 自分でビルドする
 
 Node.js 22 が必要です。
