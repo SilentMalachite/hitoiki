@@ -254,6 +254,39 @@ describe('main tray menu', () => {
     errorSpy.mockRestore();
   });
 
+  it('shows the number of per-field warnings until they are fixed', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fs.writeFileSync(configPath, JSON.stringify({ clockTimes: ['9:50'] }));
+
+    await launch();
+
+    expect(menu().slice(0, 3).map((entry) => entry.label ?? entry.type)).toEqual([
+      '⚠ 設定に 1 件の警告',
+      'separator',
+      '今すぐ休憩',
+    ]);
+    expect(tooltip()).toBe('Hitoiki: 次回 09:50');
+
+    item('⚠ 設定に 1 件の警告').click?.();
+    expect(fake.shell.openPath).toHaveBeenCalledWith(configPath);
+
+    // A failed save keeps the warnings of the last load; both items share one separator.
+    fs.writeFileSync(configPath, '{ "clockTimes": ["9:50"],');
+    item('5 分', breakItems()).click?.();
+    expect(menu().slice(0, 4).map((entry) => entry.label ?? entry.type)).toEqual([
+      '⚠ 設定ファイルにエラー',
+      '⚠ 設定に 1 件の警告',
+      'separator',
+      '今すぐ休憩',
+    ]);
+
+    fs.writeFileSync(configPath, JSON.stringify({ clockTimes: ['09:50'] }));
+    item('設定を再読込').click?.();
+
+    expect(menu()[0]?.label).toBe('今すぐ休憩');
+    errorSpy.mockRestore();
+  });
+
   it('pauses for 30 minutes and then resumes on its own, counting from the resume', async () => {
     await launch();
 

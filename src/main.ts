@@ -30,7 +30,9 @@ function start(): void {
   const configPath = path.join(app.getPath('userData'), 'config.json');
   /** Why the config file was not used or not saved. Shown in the tray until the next successful load. */
   let configError: string | null = null;
-  let config = loadConfig(configPath, setConfigError);
+  /** Per-field warnings from the last load. Only the count is shown in the tray; details go to stderr. */
+  let configWarnings = 0;
+  let config = loadConfig(configPath, setConfigError, countConfigWarning);
   /** Interval fires are counted from here. */
   let anchor = now();
   let pausedUntil: Date | null = null;
@@ -90,7 +92,8 @@ function start(): void {
   /** Re-reads the config. Keeps the anchor so that changing a setting does not push the next break back. */
   function reload(): void {
     configError = null;
-    config = loadConfig(configPath, setConfigError);
+    configWarnings = 0;
+    config = loadConfig(configPath, setConfigError, countConfigWarning);
     if (pausedUntil === null) scheduler.start(config, anchor);
     refreshTray();
   }
@@ -105,6 +108,10 @@ function start(): void {
 
   function setConfigError(reason: string): void {
     configError = reason;
+  }
+
+  function countConfigWarning(): void {
+    configWarnings++;
   }
 
   function openConfig(): void {
@@ -132,11 +139,13 @@ function start(): void {
       click: () => chooseBreak(seconds),
     }));
 
-    const errorItems: MenuItemConstructorOptions[] =
-      configError === null ? [] : [{ label: '⚠ 設定ファイルにエラー', click: openConfig }, { type: 'separator' }];
+    const configItems: MenuItemConstructorOptions[] = [];
+    if (configError !== null) configItems.push({ label: '⚠ 設定ファイルにエラー', click: openConfig });
+    if (configWarnings > 0) configItems.push({ label: `⚠ 設定に ${configWarnings} 件の警告`, click: openConfig });
+    if (configItems.length > 0) configItems.push({ type: 'separator' });
 
     const template: MenuItemConstructorOptions[] = [
-      ...errorItems,
+      ...configItems,
       { label: '今すぐ休憩', enabled: overlay.state === 'idle', click: () => takeBreak(config.breakSeconds) },
       { label: '休憩時間', submenu: breakItems },
       pausedUntil === null

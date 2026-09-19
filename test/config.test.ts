@@ -233,6 +233,28 @@ describe('loadConfig', () => {
 
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it('passes each per-field warning to onWarning', () => {
+    const onWarning = vi.fn();
+
+    loadConfig(writeConfig(JSON.stringify({ flashCount: 0, clockTimes: ['9:50', '12:00'] })), undefined, onWarning);
+
+    expect(onWarning.mock.calls).toEqual([
+      [expect.stringContaining('flashCount')],
+      [expect.stringContaining('clockTimes[0]')],
+    ]);
+  });
+
+  it('does not count a broken file or a non-object root as warnings', () => {
+    const onError = vi.fn();
+    const onWarning = vi.fn();
+
+    loadConfig(writeConfig('[1, 2, 3]'), onError, onWarning);
+    loadConfig(writeConfig('{ "flashCount": 0,'), onError, onWarning);
+
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onWarning).not.toHaveBeenCalled();
+  });
 });
 
 describe('saveBreakSeconds', () => {

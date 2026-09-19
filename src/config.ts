@@ -152,9 +152,14 @@ function describeRange(key: NumericKey): string {
 /**
  * Loads the config file. Creates it with defaults when missing.
  * Never throws: on any failure it reports the reason to stderr and returns defaults.
- * `onError` also gets a short reason for the tray whenever the file exists but defaults are used instead.
+ * `onError` also gets a short reason for the tray whenever the file exists but defaults are used instead,
+ * and `onWarning` gets each per-field warning.
  */
-export function loadConfig(filePath: string, onError: (reason: string) => void = () => {}): Config {
+export function loadConfig(
+  filePath: string,
+  onError: (reason: string) => void = () => {},
+  onWarning: (warning: string) => void = () => {},
+): Config {
   let text: string;
   try {
     text = stripBom(fs.readFileSync(filePath, 'utf8'));
@@ -176,12 +181,15 @@ export function loadConfig(filePath: string, onError: (reason: string) => void =
     onError(`JSON として不正です: ${describe(err)}`);
     return cloneDefaults();
   }
-  // normalizeConfig reports this to stderr and uses defaults.
-  if (!isPlainObject(raw)) onError('ルートが JSON オブジェクトではありません');
-
   const { config, warnings } = normalizeConfig(raw);
   for (const warning of warnings) {
     console.error(`[config] ${warning}`);
+  }
+  // normalizeConfig has used defaults; this is an error for the tray, not a per-field warning.
+  if (!isPlainObject(raw)) {
+    onError('ルートが JSON オブジェクトではありません');
+  } else {
+    for (const warning of warnings) onWarning(warning);
   }
   return config;
 }
