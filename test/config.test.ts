@@ -210,6 +210,29 @@ describe('loadConfig', () => {
 
     expect(DEFAULT_CONFIG.clockTimes).toEqual([]);
   });
+
+  it('tells onError why it fell back to defaults', () => {
+    const onError = vi.fn();
+
+    loadConfig(writeConfig('{ "intervalMinutes": 30,'), onError);
+    loadConfig(writeConfig('[1, 2, 3]'), onError);
+    loadConfig(path.join(writeConfig('{}'), 'config.json'), onError);
+
+    expect(onError.mock.calls.map(([reason]) => reason)).toEqual([
+      expect.stringMatching(/^JSON として不正です: /),
+      'ルートが JSON オブジェクトではありません',
+      expect.stringMatching(/^読み込めません: /),
+    ]);
+  });
+
+  it('does not call onError for a missing file or per-field warnings', () => {
+    const onError = vi.fn();
+
+    loadConfig(path.join(dir, 'nested', 'config.json'), onError);
+    loadConfig(writeConfig(JSON.stringify({ flashCount: 0, clockTimes: ['9:50'] })), onError);
+
+    expect(onError).not.toHaveBeenCalled();
+  });
 });
 
 describe('saveBreakSeconds', () => {
@@ -313,5 +336,32 @@ describe('saveBreakSeconds', () => {
 
     expect(saveBreakSeconds(file, Number.NaN)).toBe(false);
     expect(fs.readFileSync(file, 'utf8')).toBe('{"breakSeconds": 180}');
+  });
+
+  it('tells onError why it did not save', () => {
+    const onError = vi.fn();
+
+    saveBreakSeconds(writeConfig('{ "breakSeconds": 180,'), 600, onError);
+    saveBreakSeconds(writeConfig('[1, 2, 3]'), 600, onError);
+    saveBreakSeconds(writeConfig('{}'), Number.NaN, onError);
+    const file = writeConfig('{}');
+    writeFailure.enabled = true;
+    saveBreakSeconds(file, 600, onError);
+    writeFailure.enabled = false;
+
+    expect(onError.mock.calls.map(([reason]) => reason)).toEqual([
+      expect.stringMatching(/^休憩時間を保存できません: ./),
+      '休憩時間を保存できません: ルートが JSON オブジェクトではありません',
+      '休憩時間を保存できません: NaN は有限の数値ではありません',
+      expect.stringMatching(/^休憩時間を保存できません: ENOSPC/),
+    ]);
+  });
+
+  it('does not call onError when it saves', () => {
+    const onError = vi.fn();
+
+    expect(saveBreakSeconds(writeConfig('{}'), 600, onError)).toBe(true);
+    expect(saveBreakSeconds(path.join(dir, 'nested', 'config.json'), 600, onError)).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
   });
 });

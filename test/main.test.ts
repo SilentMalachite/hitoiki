@@ -223,6 +223,37 @@ describe('main tray menu', () => {
     expect(breakItems().filter((entry) => entry.checked).map((entry) => entry.label)).toEqual(['4 分']);
   });
 
+  it('shows a broken config file in the tray until a reload succeeds', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fs.writeFileSync(configPath, '{ "breakSeconds": 600,');
+
+    await launch();
+
+    expect(menu().slice(0, 3).map((entry) => entry.label ?? entry.type)).toEqual([
+      '⚠ 設定ファイルにエラー',
+      'separator',
+      '今すぐ休憩',
+    ]);
+    expect(tooltip()).toMatch(/^Hitoiki: 設定ファイルにエラー（JSON として不正です: .+）$/);
+
+    // Choosing a break length cannot save into the broken file: the check stays on the value in use.
+    item('5 分', breakItems()).click?.();
+    expect(fs.readFileSync(configPath, 'utf8')).toBe('{ "breakSeconds": 600,');
+    expect(breakItems().filter((entry) => entry.checked).map((entry) => entry.label)).toEqual(['3 分']);
+    expect(tooltip()).toMatch(/^Hitoiki: 設定ファイルにエラー（休憩時間を保存できません: .+）$/);
+
+    item('⚠ 設定ファイルにエラー').click?.();
+    expect(fake.shell.openPath).toHaveBeenCalledWith(configPath);
+
+    fs.writeFileSync(configPath, JSON.stringify({ breakSeconds: 600 }));
+    item('設定を再読込').click?.();
+
+    expect(menu()[0]?.label).toBe('今すぐ休憩');
+    expect(breakItems().filter((entry) => entry.checked).map((entry) => entry.label)).toEqual(['10 分']);
+    expect(tooltip()).toBe('Hitoiki: 次回 09:50');
+    errorSpy.mockRestore();
+  });
+
   it('pauses for 30 minutes and then resumes on its own, counting from the resume', async () => {
     await launch();
 

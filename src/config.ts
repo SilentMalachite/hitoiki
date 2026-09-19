@@ -152,8 +152,9 @@ function describeRange(key: NumericKey): string {
 /**
  * Loads the config file. Creates it with defaults when missing.
  * Never throws: on any failure it reports the reason to stderr and returns defaults.
+ * `onError` also gets a short reason for the tray whenever the file exists but defaults are used instead.
  */
-export function loadConfig(filePath: string): Config {
+export function loadConfig(filePath: string, onError: (reason: string) => void = () => {}): Config {
   let text: string;
   try {
     text = stripBom(fs.readFileSync(filePath, 'utf8'));
@@ -162,6 +163,7 @@ export function loadConfig(filePath: string): Config {
       writeJson(filePath, DEFAULT_CONFIG);
     } else {
       console.error(`[config] cannot read ${filePath}: ${describe(err)}; using defaults`);
+      onError(`読み込めません: ${describe(err)}`);
     }
     return cloneDefaults();
   }
@@ -171,8 +173,11 @@ export function loadConfig(filePath: string): Config {
     raw = JSON.parse(text);
   } catch (err) {
     console.error(`[config] ${filePath} is not valid JSON: ${describe(err)}; using defaults`);
+    onError(`JSON として不正です: ${describe(err)}`);
     return cloneDefaults();
   }
+  // normalizeConfig reports this to stderr and uses defaults.
+  if (!isPlainObject(raw)) onError('ルートが JSON オブジェクトではありません');
 
   const { config, warnings } = normalizeConfig(raw);
   for (const warning of warnings) {
@@ -184,11 +189,19 @@ export function loadConfig(filePath: string): Config {
 /**
  * Rewrites only the top-level breakSeconds in the config file; every other key keeps its original form.
  * Creates the file from defaults when missing. Never throws: returns false and reports to stderr
- * when the file is broken (left untouched) or cannot be written.
+ * when the file is broken (left untouched) or cannot be written. `onError` also gets a short reason for the tray
+ * whenever it returns false.
  */
-export function saveBreakSeconds(filePath: string, seconds: number): boolean {
+export function saveBreakSeconds(
+  filePath: string,
+  seconds: number,
+  onError: (reason: string) => void = () => {},
+): boolean {
+  const fail = (detail: string): void => onError(`休憩時間を保存できません: ${detail}`);
+
   if (!Number.isFinite(seconds)) {
     console.error(`[config] breakSeconds must be a finite number (got ${seconds}); not saved`);
+    fail(`${seconds} は有限の数値ではありません`);
     return false;
   }
 
@@ -197,22 +210,24 @@ export function saveBreakSeconds(filePath: string, seconds: number): boolean {
     const parsed: unknown = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf8')));
     if (!isPlainObject(parsed)) {
       console.error(`[config] ${filePath} is not a JSON object; breakSeconds not saved`);
+      fail('ルートが JSON オブジェクトではありません');
       return false;
     }
     raw = parsed;
   } catch (err) {
     if (!isErrnoCode(err, 'ENOENT')) {
       console.error(`[config] cannot update ${filePath}: ${describe(err)}; breakSeconds not saved`);
+      fail(describe(err));
       return false;
     }
     raw = { ...DEFAULT_CONFIG };
   }
 
   raw.breakSeconds = clamp('breakSeconds', seconds);
-  return writeJson(filePath, raw);
+  return writeJson(filePath, raw, fail);
 }
 
-function writeJson(filePath: string, value: unknown): boolean {
+function writeJson(filePath: string, value: unknown, onError: (detail: string) => void = () => {}): boolean {
   // Write a sibling temp file in full, then rename it over the target:
   // a failure midway (e.g. disk full) never leaves a truncated config.json behind.
   const tempPath = `${filePath}.tmp`;
@@ -228,6 +243,7 @@ function writeJson(filePath: string, value: unknown): boolean {
       // Keep reporting the original error below.
     }
     console.error(`[config] cannot write ${filePath}: ${describe(err)}`);
+    onError(describe(err));
     return false;
   }
 }

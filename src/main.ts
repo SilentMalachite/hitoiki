@@ -28,7 +28,9 @@ function start(): void {
   Menu.setApplicationMenu(null);
 
   const configPath = path.join(app.getPath('userData'), 'config.json');
-  let config = loadConfig(configPath);
+  /** Why the config file was not used or not saved. Shown in the tray until the next successful load. */
+  let configError: string | null = null;
+  let config = loadConfig(configPath, setConfigError);
   /** Interval fires are counted from here. */
   let anchor = now();
   let pausedUntil: Date | null = null;
@@ -87,17 +89,22 @@ function start(): void {
 
   /** Re-reads the config. Keeps the anchor so that changing a setting does not push the next break back. */
   function reload(): void {
-    config = loadConfig(configPath);
+    configError = null;
+    config = loadConfig(configPath, setConfigError);
     if (pausedUntil === null) scheduler.start(config, anchor);
     refreshTray();
   }
 
   function chooseBreak(seconds: number): void {
-    if (saveBreakSeconds(configPath, seconds)) {
+    if (saveBreakSeconds(configPath, seconds, setConfigError)) {
       reload();
     } else {
-      refreshTray(); // puts the radio check back on the current value
+      refreshTray(); // puts the radio check back on the current value and shows the error
     }
+  }
+
+  function setConfigError(reason: string): void {
+    configError = reason;
   }
 
   function openConfig(): void {
@@ -108,6 +115,7 @@ function start(): void {
 
   function tooltip(): string {
     if (overlay.state !== 'idle') return 'Hitoiki: 休憩中';
+    if (configError !== null) return `Hitoiki: 設定ファイルにエラー（${configError}）`;
     if (pausedUntil !== null) return `Hitoiki: 停止中（${formatTime(pausedUntil)} に再開）`;
     const next = scheduler.next;
     return next === null ? 'Hitoiki: 予定なし' : `Hitoiki: 次回 ${formatTime(next)}`;
@@ -124,7 +132,11 @@ function start(): void {
       click: () => chooseBreak(seconds),
     }));
 
+    const errorItems: MenuItemConstructorOptions[] =
+      configError === null ? [] : [{ label: '⚠ 設定ファイルにエラー', click: openConfig }, { type: 'separator' }];
+
     const template: MenuItemConstructorOptions[] = [
+      ...errorItems,
       { label: '今すぐ休憩', enabled: overlay.state === 'idle', click: () => takeBreak(config.breakSeconds) },
       { label: '休憩時間', submenu: breakItems },
       pausedUntil === null
