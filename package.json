@@ -1,6 +1,6 @@
 {
   "name": "hitoiki",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Resident app that flashes the screen and blocks input to break hyperfocus",
   "license": "MIT",
