@@ -216,7 +216,7 @@ describe('loadConfig', () => {
 
     loadConfig(writeConfig('{ "intervalMinutes": 30,'), onError);
     loadConfig(writeConfig('[1, 2, 3]'), onError);
-    loadConfig(path.join(writeConfig('{}'), 'config.json'), onError);
+    loadConfig(dir, onError); // a directory: EISDIR on every OS, unlike a path below a file (ENOENT on Windows)
 
     expect(onError.mock.calls.map(([reason]) => reason)).toEqual([
       expect.stringMatching(/^JSON として不正です: /),
