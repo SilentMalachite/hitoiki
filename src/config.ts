@@ -30,9 +30,10 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   breakSeconds: 180,
 });
 
-type NumericKey = 'intervalMinutes' | 'flashCount' | 'flashIntervalMs' | 'flashOpacity' | 'breakSeconds';
+export type NumericKey = 'intervalMinutes' | 'flashCount' | 'flashIntervalMs' | 'flashOpacity' | 'breakSeconds';
 
-const RANGES: Readonly<Record<NumericKey, readonly [min: number, max: number]>> = {
+/** Valid range of each numeric field. The settings window builds its form limits from these. */
+export const RANGES: Readonly<Record<NumericKey, readonly [min: number, max: number]>> = {
   intervalMinutes: [1, 480],
   flashCount: [1, 10],
   flashIntervalMs: [334, 2000],
@@ -41,6 +42,24 @@ const RANGES: Readonly<Record<NumericKey, readonly [min: number, max: number]>> 
 };
 
 const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** The config as the settings window edits it. */
+export interface SettingsDraft extends Omit<Config, 'clockTimes'> {
+  /** breakSeconds null: written as a plain "HH:mm" string, which follows the top-level breakSeconds. */
+  clockTimes: { time: string; breakSeconds: number | null }[];
+}
+
+export interface SettingsRead {
+  draft: SettingsDraft;
+  /** Why the file cannot be used or updated; the settings window then refuses to save. */
+  error: string | null;
+}
+
+/** On success, `draft` is the file as read back after the write. */
+export type SaveResult = { ok: true; draft: SettingsDraft } | { ok: false; reason: string };
+
+/** The keys the settings window owns, in the order a new file lists them. */
+const SETTINGS_KEYS = Object.keys(DEFAULT_CONFIG) as (keyof Config)[];
 
 export interface NormalizeResult {
   config: Config;
@@ -213,26 +232,136 @@ export function saveBreakSeconds(
     return false;
   }
 
-  let raw: Record<string, unknown>;
+  const raw = readForUpdate(filePath, 'breakSeconds', fail);
+  if (raw === null) return false;
+  raw.breakSeconds = clamp('breakSeconds', seconds);
+  return writeJson(filePath, raw, fail);
+}
+
+/**
+ * Reads the config file for the settings window. Values are normalized as loadConfig does,
+ * but each clockTimes entry keeps whether it has its own breakSeconds. Never throws:
+ * returns defaults with an `error` when the file exists but cannot be updated.
+ */
+export function readSettings(filePath: string): SettingsRead {
+  const defaults = toDraft(cloneDefaults(), []);
+  let text: string;
+  try {
+    text = stripBom(fs.readFileSync(filePath, 'utf8'));
+  } catch (err) {
+    if (isErrnoCode(err, 'ENOENT')) return { draft: defaults, error: null };
+    console.error(`[config] settings window cannot read ${filePath}: ${describe(err)}`);
+    return { draft: defaults, error: `読み込めません: ${describe(err)}` };
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    console.error(`[config] settings window: ${filePath} is not valid JSON: ${describe(err)}`);
+    return { draft: defaults, error: `JSON として不正です: ${describe(err)}` };
+  }
+  if (!isPlainObject(raw)) return { draft: defaults, error: 'ルートが JSON オブジェクトではありません' };
+  const { config } = normalizeConfig(raw);
+  const rawClockTimes = Array.isArray(raw.clockTimes) ? (raw.clockTimes as unknown[]) : [];
+  // Same filter as normalizeConfig, so the flags line up with config.clockTimes.
+  const ownBreak = rawClockTimes
+    .filter((entry) => normalizeClockTime(entry, '', config.breakSeconds, []) !== null)
+    .map((entry) => isPlainObject(entry) && typeof entry.breakSeconds === 'number' && Number.isFinite(entry.breakSeconds));
+  return { draft: toDraft(config, ownBreak), error: null };
+}
+
+/**
+ * Writes the settings window's draft into the config file. Only the keys whose value differs from `base`
+ * (the draft the window loaded) are written, so a value changed elsewhere since then (the tray, an editor)
+ * is kept unless the window changed it too. Any other key in the file is kept as well.
+ * The draft comes from a renderer, so its shape and every value are checked again; nothing is written
+ * unless all of them are valid. Creates the file when missing; leaves a broken file untouched. Never throws.
+ */
+export function saveConfig(
+  filePath: string,
+  draft: unknown,
+  base: SettingsDraft,
+  onError: (reason: string) => void = () => {},
+): SaveResult {
+  const failed = (detail: string): SaveResult => {
+    const reason = `設定を保存できません: ${detail}`;
+    onError(reason);
+    return { ok: false, reason };
+  };
+
+  const next = draftToRaw(draft);
+  if (next === null) {
+    console.error('[config] settings draft has an unexpected shape; not saved');
+    return failed('値の形式が不正です');
+  }
+  const { warnings } = normalizeConfig(next);
+  if (warnings.length > 0) {
+    console.error(`[config] settings not saved: ${warnings.join('; ')}`);
+    return failed(warnings.join('; '));
+  }
+
+  let detail = '';
+  const remember = (message: string): void => {
+    detail = message;
+  };
+  const raw = readForUpdate(filePath, 'settings', remember);
+  if (raw === null) return failed(detail);
+  const loaded = draftToRaw(base) ?? {};
+  for (const key of SETTINGS_KEYS) {
+    if (JSON.stringify(next[key]) !== JSON.stringify(loaded[key])) raw[key] = next[key];
+  }
+  if (!writeJson(filePath, raw, remember)) return failed(detail);
+  return { ok: true, draft: readSettings(filePath).draft };
+}
+
+function toDraft(config: Config, ownBreak: boolean[]): SettingsDraft {
+  return {
+    ...config,
+    clockTimes: config.clockTimes.map((entry, index) => ({
+      time: entry.time,
+      breakSeconds: ownBreak[index] === true ? entry.breakSeconds : null,
+    })),
+  };
+}
+
+/** Converts a draft into the form written to the file. Returns null when it is not shaped like a SettingsDraft. */
+function draftToRaw(draft: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(draft) || !Array.isArray(draft.clockTimes)) return null;
+  const raw: Record<string, unknown> = {};
+  for (const key of SETTINGS_KEYS) {
+    if (draft[key] === undefined) return null;
+    raw[key] = draft[key];
+  }
+  const clockTimes: unknown[] = [];
+  for (const entry of draft.clockTimes as unknown[]) {
+    if (!isPlainObject(entry)) return null;
+    clockTimes.push(entry.breakSeconds === null ? entry.time : { time: entry.time, breakSeconds: entry.breakSeconds });
+  }
+  raw.clockTimes = clockTimes;
+  return raw;
+}
+
+/**
+ * Reads the config file to update some keys in place. A missing file reads as the defaults.
+ * Returns null and reports to stderr and `fail` when the file is broken, so that it is never overwritten.
+ */
+function readForUpdate(filePath: string, what: string, fail: (detail: string) => void): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf8')));
     if (!isPlainObject(parsed)) {
-      console.error(`[config] ${filePath} is not a JSON object; breakSeconds not saved`);
+      console.error(`[config] ${filePath} is not a JSON object; ${what} not saved`);
       fail('ルートが JSON オブジェクトではありません');
-      return false;
+      return null;
     }
-    raw = parsed;
+    return parsed;
   } catch (err) {
     if (!isErrnoCode(err, 'ENOENT')) {
-      console.error(`[config] cannot update ${filePath}: ${describe(err)}; breakSeconds not saved`);
+      console.error(`[config] cannot update ${filePath}: ${describe(err)}; ${what} not saved`);
       fail(describe(err));
-      return false;
+      return null;
     }
-    raw = { ...DEFAULT_CONFIG };
+    return { ...DEFAULT_CONFIG };
   }
-
-  raw.breakSeconds = clamp('breakSeconds', seconds);
-  return writeJson(filePath, raw, fail);
 }
 
 function writeJson(filePath: string, value: unknown, onError: (detail: string) => void = () => {}): boolean {

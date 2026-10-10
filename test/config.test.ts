@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_CONFIG, loadConfig, saveBreakSeconds } from '../src/config';
+import { DEFAULT_CONFIG, loadConfig, readSettings, saveBreakSeconds, saveConfig, type SettingsDraft } from '../src/config';
 
 const writeFailure = vi.hoisted(() => ({ enabled: false }));
 
@@ -385,5 +385,205 @@ describe('saveBreakSeconds', () => {
     expect(saveBreakSeconds(writeConfig('{}'), 600, onError)).toBe(true);
     expect(saveBreakSeconds(path.join(dir, 'nested', 'config.json'), 600, onError)).toBe(true);
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+function draft(overrides: Partial<SettingsDraft> = {}): SettingsDraft {
+  return { ...DEFAULT_CONFIG, clockTimes: [], ...overrides };
+}
+
+describe('readSettings', () => {
+  it('keeps whether each clock time has its own breakSeconds', () => {
+    const file = writeConfig(
+      JSON.stringify({
+        breakSeconds: 300,
+        clockTimes: ['15:00', { time: '12:00', breakSeconds: 3600 }, { time: '18:00' }, '25:00', { time: '19:00', breakSeconds: 'x' }],
+      }),
+    );
+
+    expect(readSettings(file)).toEqual({
+      draft: draft({
+        breakSeconds: 300,
+        clockTimes: [
+          { time: '15:00', breakSeconds: null },
+          { time: '12:00', breakSeconds: 3600 },
+          { time: '18:00', breakSeconds: null },
+          { time: '19:00', breakSeconds: null },
+        ],
+      }),
+      error: null,
+    });
+  });
+
+  it('normalizes values as loadConfig does', () => {
+    const file = writeConfig(JSON.stringify({ flashIntervalMs: 100, fadeMode: 'yes', clockTimes: [{ time: '12:00', breakSeconds: 5 }] }));
+
+    const { draft: read } = readSettings(file);
+
+    expect(read.flashIntervalMs).toBe(334);
+    expect(read.fadeMode).toBe(false);
+    expect(read.clockTimes).toEqual([{ time: '12:00', breakSeconds: 10 }]);
+  });
+
+  it('reads a missing file as the defaults without an error', () => {
+    expect(readSettings(path.join(dir, 'missing.json'))).toEqual({ draft: draft(), error: null });
+  });
+
+  it('reports a broken file and returns the defaults', () => {
+    expect(readSettings(writeConfig('{ "breakSeconds": 180,'))).toEqual({
+      draft: draft(),
+      error: expect.stringMatching(/^JSON として不正です: /),
+    });
+    expect(readSettings(writeConfig('[1]')).error).toBe('ルートが JSON オブジェクトではありません');
+    expect(readSettings(dir).error).toMatch(/^読み込めません: /);
+  });
+});
+
+/** Saves as the settings window does right after loading the file. */
+function saveLoaded(file: string, value: unknown, onError?: (reason: string) => void) {
+  return saveConfig(file, value, readSettings(file).draft, onError);
+}
+
+describe('saveConfig', () => {
+  it('replaces the settings keys and keeps any other key', () => {
+    const file = writeConfig(JSON.stringify({ note: 'mine', intervalMinutes: 50, breakSeconds: 180 }));
+
+    const result = saveLoaded(
+      file,
+      draft({
+        intervalMinutes: 25,
+        breakSeconds: 300,
+        clockTimes: [
+          { time: '15:00', breakSeconds: null },
+          { time: '12:00', breakSeconds: 3600 },
+        ],
+      }),
+    );
+
+    expect(result).toEqual({ ok: true, draft: readSettings(file).draft });
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(saved).toEqual({
+      note: 'mine',
+      intervalMinutes: 25,
+      breakSeconds: 300,
+      clockTimes: ['15:00', { time: '12:00', breakSeconds: 3600 }],
+    });
+    expect(Object.keys(saved).slice(0, 3)).toEqual(['note', 'intervalMinutes', 'breakSeconds']);
+    expect(readSettings(file).draft.clockTimes).toEqual([
+      { time: '15:00', breakSeconds: null },
+      { time: '12:00', breakSeconds: 3600 },
+    ]);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('writes two-space JSON without a BOM and leaves no temporary file', () => {
+    const file = writeConfig(`﻿{}`);
+
+    expect(saveLoaded(file, draft({ flashCount: 5 })).ok).toBe(true);
+
+    expect(fs.readFileSync(file, 'utf8')).toBe('{\n  "flashCount": 5\n}\n');
+    expect(fs.readdirSync(dir)).toEqual(['config.json']);
+  });
+
+  it('creates the file when it does not exist', () => {
+    const file = path.join(dir, 'nested', 'config.json');
+
+    expect(saveLoaded(file, draft({ flashCount: 5 }))).toEqual({ ok: true, draft: draft({ flashCount: 5 }) });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...DEFAULT_CONFIG, flashCount: 5 });
+  });
+
+  it('refuses out-of-range or invalid values without touching the file', () => {
+    const file = writeConfig('{"breakSeconds": 180}');
+
+    for (const bad of [
+      draft({ flashIntervalMs: 100 }),
+      draft({ intervalMinutes: 0.4 }),
+      draft({ flashOpacity: Number.NaN }),
+      draft({ clockTimes: [{ time: '24:00', breakSeconds: null }] }),
+      draft({ clockTimes: [{ time: '12:00', breakSeconds: 5 }] }),
+    ]) {
+      const result = saveLoaded(file, bad);
+      expect(result).toEqual({ ok: false, reason: expect.stringMatching(/^設定を保存できません: /) });
+    }
+    expect(fs.readFileSync(file, 'utf8')).toBe('{"breakSeconds": 180}');
+  });
+
+  it('accepts 0 as a disabled interval', () => {
+    const file = writeConfig('{}');
+
+    expect(saveLoaded(file, draft({ intervalMinutes: 0 })).ok).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).intervalMinutes).toBe(0);
+  });
+
+  it('refuses a draft that is not shaped like a SettingsDraft', () => {
+    const file = writeConfig('{}');
+    const { fadeMode: _omitted, ...missingKey } = draft();
+
+    for (const bad of [null, 'x', [], missingKey, { ...draft(), clockTimes: 'x' }, { ...draft(), clockTimes: ['12:00'] }]) {
+      expect(saveLoaded(file, bad)).toEqual({ ok: false, reason: '設定を保存できません: 値の形式が不正です' });
+    }
+    expect(fs.readFileSync(file, 'utf8')).toBe('{}');
+  });
+
+  it('writes only the keys it owns, not extra keys from the draft', () => {
+    const file = writeConfig('{}');
+
+    expect(saveLoaded(file, { ...draft(), extra: 1, clockTimes: [{ time: '12:00', breakSeconds: null, extra: 2 }] }).ok).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ clockTimes: ['12:00'] });
+  });
+
+  it('keeps a value changed elsewhere after the window loaded the file', () => {
+    const file = writeConfig(JSON.stringify({ breakSeconds: 180, flashColor: '#FFFFFF' }));
+    const loaded = readSettings(file).draft;
+    saveBreakSeconds(file, 300); // the tray changes the break length while the window is open
+
+    const result = saveConfig(file, { ...loaded, flashColor: '#FF0000' }, loaded);
+
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ breakSeconds: 300, flashColor: '#FF0000' });
+    expect(result).toEqual({ ok: true, draft: draft({ breakSeconds: 300, flashColor: '#FF0000' }) });
+  });
+
+  it('writes a key the window changed even when it also changed elsewhere', () => {
+    const file = writeConfig(JSON.stringify({ breakSeconds: 180 }));
+    const loaded = readSettings(file).draft;
+    saveBreakSeconds(file, 300);
+
+    expect(saveConfig(file, { ...loaded, breakSeconds: 600 }, loaded).ok).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ breakSeconds: 600 });
+  });
+
+  it('leaves unchanged keys exactly as written in the file', () => {
+    const original = { flashIntervalMs: 100, clockTimes: [{ time: '12:00', breakSeconds: 180 }], breakSeconds: 180 };
+    const file = writeConfig(JSON.stringify(original));
+
+    expect(saveLoaded(file, { ...readSettings(file).draft, flashCount: 5 }).ok).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...original, flashCount: 5 });
+  });
+
+  it('leaves a broken file untouched', () => {
+    const file = writeConfig('{ "breakSeconds": 180,');
+
+    expect(saveLoaded(file, draft())).toEqual({ ok: false, reason: expect.stringMatching(/^設定を保存できません: ./) });
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ "breakSeconds": 180,');
+    expect(saveLoaded(writeConfig('[1, 2, 3]'), draft())).toEqual({
+      ok: false,
+      reason: '設定を保存できません: ルートが JSON オブジェクトではありません',
+    });
+    expect(fs.readFileSync(file, 'utf8')).toBe('[1, 2, 3]');
+  });
+
+  it('keeps the original file when the write fails midway and tells onError', () => {
+    const original = JSON.stringify({ breakSeconds: 180 });
+    const file = writeConfig(original);
+    const onError = vi.fn();
+
+    writeFailure.enabled = true;
+    const result = saveLoaded(file, draft(), onError);
+    writeFailure.enabled = false;
+
+    expect(result).toEqual({ ok: false, reason: expect.stringMatching(/^設定を保存できません: ENOSPC/) });
+    expect(onError).toHaveBeenCalledWith(result.ok ? '' : result.reason);
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    expect(fs.readdirSync(dir)).toEqual(['config.json']);
   });
 });

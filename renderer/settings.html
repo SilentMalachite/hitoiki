@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Hitoiki 設定</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --line: #ddd8cc;
+    --muted: #8a8578;
+    --accent: #b4541f;
+    --bad: #b42318;
+    --ok: #1f7a52;
+    --panel: #faf8f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --line: #3d3a35;
+      --muted: #9a958a;
+      --accent: #e08a55;
+      --bad: #f07a6e;
+      --ok: #5cc092;
+      --panel: #232220;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex;
+    flex-direction: column;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    background: Canvas;
+    color: CanvasText;
+    cursor: default;
+  }
+  form { display: flex; flex-direction: column; flex: 1; min-height: 0; margin: 0; }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  main { flex: 1; overflow-y: auto; padding: 4px 0 12px; }
+  #error {
+    display: none;
+    margin: 12px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--bad);
+    border-radius: 8px;
+    color: var(--bad);
+  }
+  #error.shown { display: block; }
+  #error button { margin-top: 8px; }
+  h2 {
+    margin: 14px 16px 4px;
+    font-size: 11.5px;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .field {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 16px;
+  }
+  .field small, .hint { display: block; color: var(--muted); font-size: 11.5px; }
+  input[type="number"], input[type="text"] {
+    font: inherit;
+    width: 96px;
+    padding: 3px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: Field;
+    color: FieldText;
+    text-align: right;
+  }
+  input.invalid { border-color: var(--bad); outline-color: var(--bad); }
+  input[type="color"] { width: 28px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; vertical-align: middle; }
+  .color { display: flex; gap: 6px; align-items: center; }
+  .clock {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 16px;
+  }
+  .clock input.time { width: 80px; text-align: center; }
+  .clock .seconds { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .clock input.break { width: 80px; }
+  .remove {
+    font: inherit;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  #add-clock {
+    font: inherit;
+    font-weight: 600;
+    margin: 4px 16px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  #no-clock { padding: 2px 16px; color: var(--muted); }
+  footer {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  #status { flex: 1; font-size: 12px; color: var(--muted); }
+  #status.bad { color: var(--bad); }
+  #status.ok { color: var(--ok); }
+  button.action {
+    font: inherit;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: Field;
+    color: FieldText;
+  }
+  button.primary { background: CanvasText; color: Canvas; border-color: CanvasText; }
+  button:disabled { opacity: 0.4; }
+</style>
+</head>
+<body>
+<form id="form" novalidate>
+  <div id="error" role="alert">
+    <div id="error-text"></div>
+    <button type="button" class="action" id="open-file">設定ファイルを開く</button>
+  </div>
+  <main>
+    <fieldset id="fields" disabled>
+      <h2>スケジュール</h2>
+      <label class="field"><span>間隔（分）<small data-hint="intervalMinutes"></small></span><input type="number" id="intervalMinutes" step="1"></label>
+
+      <h2>時刻指定</h2>
+      <div id="clocks"></div>
+      <div id="no-clock">なし</div>
+      <button type="button" id="add-clock">＋ 時刻を追加</button>
+
+      <h2>休憩</h2>
+      <label class="field"><span>休憩時間（秒）<small data-hint="breakSeconds"></small></span><input type="number" id="breakSeconds" step="1"></label>
+
+      <h2>フラッシュ</h2>
+      <label class="field"><span>回数<small data-hint="flashCount"></small></span><input type="number" id="flashCount" step="1"></label>
+      <label class="field"><span>周期（ms）<small data-hint="flashIntervalMs"></small></span><input type="number" id="flashIntervalMs" step="1"></label>
+      <label class="field"><span>最大の不透明度<small data-hint="flashOpacity"></small></span><input type="number" id="flashOpacity" step="0.05"></label>
+      <div class="field"><label for="flashColor">色</label><span class="color"><input type="color" id="flashColorPicker" aria-label="色を選ぶ"><input type="text" id="flashColor" spellcheck="false"></span></div>
+      <label class="field"><span>フェード<small>オンで滑らかに点滅する</small></span><input type="checkbox" id="fadeMode"></label>
+    </fieldset>
+  </main>
+  <footer>
+    <span id="status" aria-live="polite"></span>
+    <button type="button" class="action" id="close">閉じる</button>
+    <button type="submit" class="action primary" id="save" disabled>保存</button>
+  </footer>
+</form>
+
+<script>
+'use strict';
+(() => {
+  const api = window.hitoikiSettings;
+  const NUMERIC_KEYS = ['intervalMinutes', 'breakSeconds', 'flashCount', 'flashIntervalMs', 'flashOpacity'];
+  const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+  const $ = (id) => document.getElementById(id);
+  const form = $('form');
+  const fields = $('fields');
+  const clocks = $('clocks');
+  const saveButton = $('save');
+  const status = $('status');
+
+  let ranges = null;
+  /** True when config.json cannot be updated; the form stays read-only. */
+  let blocked = false;
+  /** The form state as last loaded or saved. */
+  let baseline = '';
+  let saving = false;
+  /** The outcome of the last save, shown until the next edit. */
+  let notice = null;
+
+  function setStatus(text, tone) {
+    status.textContent = text;
+    status.className = tone || '';
+  }
+
+  function inRange(key, value) {
+    const [min, max] = ranges[key];
+    if (key === 'intervalMinutes' && value === 0) return true;
+    return value >= min && value <= max;
+  }
+
+  /** True when the input holds nothing at all. Chromium reports a half-typed number such as "1e" as "" too. */
+  function isBlank(input) {
+    return input.value.trim() === '' && !input.validity.badInput;
+  }
+
+  /** Parses a numeric input; returns null when empty, not a number or out of range. */
+  function readNumber(input, key) {
+    if (input.value.trim() === '') return null;
+    const value = Number(input.value);
+    return Number.isFinite(value) && inRange(key, value) ? value : null;
+  }
+
+  function addClockRow(time, breakSeconds) {
+    const row = document.createElement('div');
+    row.className = 'clock';
+    const timeInput = document.createElement('input');
+    timeInput.type = 'text';
+    timeInput.className = 'time';
+    timeInput.placeholder = 'HH:mm';
+    timeInput.setAttribute('aria-label', '時刻');
+    timeInput.value = time;
+    const seconds = document.createElement('span');
+    seconds.className = 'seconds';
+    const breakInput = document.createElement('input');
+    breakInput.type = 'number';
+    breakInput.className = 'break';
+    breakInput.step = '1';
+    breakInput.placeholder = '全体';
+    breakInput.title = '空欄なら全体の休憩時間を使う';
+    breakInput.setAttribute('aria-label', 'この時刻の休憩時間（秒）');
+    breakInput.value = breakSeconds === null ? '' : String(breakSeconds);
+    seconds.append(breakInput, '秒');
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'remove';
+    remove.textContent = '✕';
+    remove.setAttribute('aria-label', 'この時刻を削除');
+    remove.addEventListener('click', () => {
+      notice = null;
+      row.remove();
+      update();
+    });
+    row.append(timeInput, seconds, remove);
+    clocks.append(row);
+    return timeInput;
+  }
+
+  /** Reads the form. `valid` is false when any value would be refused by main. */
+  function collect() {
+    let valid = true;
+    const draft = {};
+    for (const key of NUMERIC_KEYS) {
+      const input = $(key);
+      const value = readNumber(input, key);
+      input.classList.toggle('invalid', value === null);
+      if (value === null) valid = false;
+      draft[key] = value;
+    }
+    draft.clockTimes = [...clocks.children].map((row) => {
+      const timeInput = row.querySelector('.time');
+      const breakInput = row.querySelector('.break');
+      const time = timeInput.value.trim();
+      const timeOk = CLOCK_TIME.test(time);
+      const breakSeconds = isBlank(breakInput) ? null : readNumber(breakInput, 'breakSeconds');
+      const breakOk = isBlank(breakInput) || breakSeconds !== null;
+      timeInput.classList.toggle('invalid', !timeOk);
+      breakInput.classList.toggle('invalid', !breakOk);
+      if (!timeOk || !breakOk) valid = false;
+      return { time, breakSeconds };
+    });
+    const color = $('flashColor').value.trim();
+    $('flashColor').classList.toggle('invalid', color === '');
+    if (color === '') valid = false;
+    draft.flashColor = color;
+    draft.fadeMode = $('fadeMode').checked;
+    return { draft, valid };
+  }
+
+  function isDirty() {
+    return !blocked && JSON.stringify(collect().draft) !== baseline;
+  }
+
+  function update() {
+    $('no-clock').style.display = clocks.children.length === 0 ? '' : 'none';
+    if (blocked || ranges === null) return;
+    const { draft, valid } = collect();
+    const dirty = JSON.stringify(draft) !== baseline;
+    saveButton.disabled = saving || !dirty || !valid;
+    if (!valid) {
+      setStatus('赤枠の値を直してください', 'bad');
+    } else if (notice !== null) {
+      setStatus(notice.text, notice.tone);
+    } else if (dirty) {
+      setStatus('未保存の変更があります');
+    } else {
+      setStatus('');
+    }
+  }
+
+  function fill(draft) {
+    for (const key of NUMERIC_KEYS) $(key).value = String(draft[key]);
+    clocks.replaceChildren();
+    for (const entry of draft.clockTimes) addClockRow(entry.time, entry.breakSeconds);
+    $('flashColor').value = draft.flashColor;
+    if (HEX_COLOR.test(draft.flashColor)) $('flashColorPicker').value = draft.flashColor.toLowerCase();
+    $('fadeMode').checked = draft.fadeMode;
+  }
+
+  function showHints() {
+    for (const element of document.querySelectorAll('[data-hint]')) {
+      const key = element.dataset.hint;
+      const [min, max] = ranges[key];
+      element.textContent = key === 'intervalMinutes' ? `0 で無効。${min}〜${max}` : `${min}〜${max}`;
+      $(key).min = String(key === 'intervalMinutes' ? 0 : min);
+      $(key).max = String(max);
+    }
+  }
+
+  async function init() {
+    const snapshot = await api.get();
+    if (snapshot === null) {
+      setStatus('設定を読み込めません', 'bad');
+      return;
+    }
+    ranges = snapshot.ranges;
+    showHints();
+    fill(snapshot.draft);
+    baseline = JSON.stringify(collect().draft);
+    if (snapshot.error !== null) {
+      blocked = true;
+      $('error-text').textContent = `設定ファイルにエラーがあるため、ここからは保存できません（${snapshot.error}）。ファイルを直してから開き直してください。`;
+      $('error').classList.add('shown');
+      update();
+      return;
+    }
+    fields.disabled = false;
+    update();
+  }
+
+  async function save() {
+    const { draft, valid } = collect();
+    if (blocked || saving || !valid) return;
+    saving = true;
+    saveButton.disabled = true;
+    // Edits made while waiting would be lost when the form is refilled from the saved file.
+    fields.disabled = true;
+    try {
+      const result = await api.save(draft);
+      if (result.ok) {
+        // Show the file as saved: values changed elsewhere since the window opened are kept there.
+        fill(result.draft);
+        baseline = JSON.stringify(collect().draft);
+        notice = { text: '保存しました', tone: 'ok' };
+      } else {
+        notice = { text: result.reason, tone: 'bad' };
+      }
+    } finally {
+      saving = false;
+      fields.disabled = false;
+      update();
+    }
+  }
+
+  form.addEventListener('input', () => {
+    notice = null;
+    update();
+  });
+  form.addEventListener('change', update);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void save();
+  });
+  $('add-clock').addEventListener('click', () => {
+    notice = null;
+    addClockRow('', null).focus();
+    update();
+  });
+  $('flashColorPicker').addEventListener('input', () => {
+    $('flashColor').value = $('flashColorPicker').value.toUpperCase();
+    update();
+  });
+  $('flashColor').addEventListener('input', () => {
+    const value = $('flashColor').value.trim();
+    if (HEX_COLOR.test(value)) $('flashColorPicker').value = value.toLowerCase();
+  });
+  $('open-file').addEventListener('click', () => api.openConfigFile());
+  $('close').addEventListener('click', () => window.close());
+  // Cancelling the unload makes main ask whether to discard the changes.
+  window.addEventListener('beforeunload', (event) => {
+    if (isDirty()) {
+      event.preventDefault();
+      event.returnValue = false;
+    }
+  });
+
+  void init();
+})();
+</script>
+</body>
+</html>

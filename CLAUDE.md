@@ -25,7 +25,7 @@ package.json の `scripts` は上記 5 つに限る。
 ## 作業の進め方
 
 1. 着手前に **計画** を出して承認を待つ。計画は「触るファイル」「変更点」を合わせて 5 行以内。
-2. 1 回の依頼で扱うのは SPEC.md の機能 1 つ（F1〜F5 のいずれか）まで。
+2. 1 回の依頼で扱うのは SPEC.md の機能 1 つ（F1〜F6 のいずれか）まで。
 3. 実装後、`npm run build` と `npm test` を通してから報告する。通らないまま報告しない。
 4. 報告は「やったこと／確認方法／残り」の 3 項目。各項目 3 行以内。
 5. 判断が必要な箇所は勝手に決めず質問する。質問は一度に 1 つ。
@@ -47,8 +47,9 @@ package.json の `scripts` は上記 5 つに限る。
 
 - `tsconfig`: `strict: true`、`noUncheckedIndexedAccess: true`、`module: commonjs`、`target: es2022`。
 - 時刻は `now: () => Date` を注入し、`Date.now()` を直接呼ぶのは `main.ts` だけ。
-- IPC のチャンネル名は `overlay:` 接頭辞で統一し、`src/ipc.ts` に定数として置く。
-- `overlay.html` は 1 ファイルで完結させる。外部 CSS/JS、CDN 参照はしない。
+- IPC のチャンネル名はオーバーレイ用を `overlay:`、設定ウィンドウ用を `settings:` の接頭辞にし、
+  `src/ipc.ts` に定数として置く。
+- `overlay.html` と `settings.html` はそれぞれ 1 ファイルで完結させる。外部 CSS/JS、CDN 参照はしない。
 - 例外を握るのは Config の読み書きだけ（読込は既定値にフォールバック、書込は何もしない。どちらも標準エラーに理由を出す）。
   例外として、既に破棄したオーバーレイウィンドウの読込中断（`loadFile` の reject）だけは無視してよい。
   まだ使っているウィンドウのエラーは投げ直す（`overlay.ts` の `load`）。

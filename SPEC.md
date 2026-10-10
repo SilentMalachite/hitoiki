@@ -94,6 +94,7 @@
     config.json に保存して設定を再読込する。clock 要素の個別の `breakSeconds` は変えない。
     現在値が一覧に無いときは、その値を 1 行足して選択状態で表示する。
   - 30 分間停止 / 再開
+  - 設定…（設定ウィンドウを開く。開いていれば前面に出す。F6 を参照）
   - 設定ファイルを開く（`shell.openPath`）
   - 設定を再読込
   - 終了
@@ -134,14 +135,34 @@
 - 書き込み（既定値の生成・保存とも）は同じフォルダの `config.json.tmp` に書き切ってから置き換える。
   途中で失敗しても元のファイルは壊さず、一時ファイルも残さない。
 
+### F6 設定ウィンドウ
+- トレイの「設定…」で開く。1 枚だけ持ち、開いていれば前面に出す。閉じたら破棄する。
+- F5 の 8 項目を編集する。範囲は F5 の検証ルールと同じ。範囲外の値や "HH:mm" でない時刻があるときは
+  保存できない（main も値を検証し直し、通らなければ書かない）。
+- `clockTimes` の各行は個別の休憩秒数を持てる。空欄の行は "HH:mm" 文字列として書き、全体の
+  `breakSeconds` に従う。
+- 「保存」を押したときだけ config.json を書く。書き換えるのは 8 項目のうち、ウィンドウで読み込んだ値から
+  変えた項目だけ。ウィンドウを開いた後にトレイや手編集で変わった項目と、8 項目以外のキーは保つ。
+  書き方（2 スペース字下げ、BOM なし、`config.json.tmp` を経由した置き換え）は F5 の保存と同じ。
+- 保存に成功したら設定を再読込し（interval の起点は変えない）、フォームを保存後のファイルの内容で
+  読み直す。失敗したら理由をウィンドウに出し、次に値を変えるまで残す。
+- config.json が壊れていれば（読めない・JSON として不正・ルートがオブジェクトでない）書かない。
+  ウィンドウはエラーと「設定ファイルを開く」を出し、保存できないようにする。
+- 未保存の変更があるまま閉じるときは確認する。アプリ終了・ログオフ・シャットダウンでは確認せずに破棄する。
+- macOS ではアプリメニューが無く編集ショートカットが効かないため、設定ウィンドウの中だけで
+  Cmd+A / C / V / X / Z と Cmd+Shift+Z を処理する（アプリメニューは無いままにする）。
+- main との通信は設定用の preload で公開する API（`get`, `save`, `openConfigFile`）だけ。
+
 ---
 
 ## 3. 非機能要件
 
 - 待機時 CPU ≒ 0%（ポーリング禁止）。
 - 待機時はオーバーレイ用 BrowserWindow を生成しない（レンダラープロセスを持たない）。
+  設定ウィンドウはユーザーが開いたときだけ作り、閉じたら破棄する。
 - レンダラーは `contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`。
-  main との通信は preload で公開する最小 API（`onTick`, `onFlash`, `cancel`）だけ。
+  オーバーレイと main との通信は preload で公開する最小 API（`onTick`, `onFlash`, `cancel`）だけ
+  （設定ウィンドウは F6 を参照）。
 - OS レベルの入力フック（`BlockInput`、`CGEventTap`、`iohook` 等）は使わない。
 - ネットワーク通信なし。
 - ログイン時自動起動は v1 の対象外。
@@ -158,12 +179,16 @@ src/
   config.ts          読み書き・既定値・検証。Electron を import しない（パスは引数で受ける）
   overlay.ts         BrowserWindow 群の生成と、フラッシュ → 休憩の状態遷移
   preload.ts         contextBridge で最小 API を公開
+  settings.ts        設定ウィンドウの生成と、設定の読込・保存の IPC
+  settings-preload.ts  設定ウィンドウ用の API（get, save, openConfigFile）を公開
 renderer/
   overlay.html       単一 HTML。CSS/JS を内包。外部リソースなし
+  settings.html      設定ウィンドウ。単一 HTML。CSS/JS を内包。外部リソースなし
 test/
   scheduler.test.ts
   config.test.ts
   overlay.test.ts    electron をモックして状態遷移・ウィンドウ・ディスプレイ変化を検証
+  settings.test.ts   electron をモックして設定ウィンドウの開閉・IPC・未保存時の確認を検証
   main.test.ts       electron と Overlay をモックして起動・トレイ・停止/再開・スリープ復帰を検証
 dist/                tsc 出力（git 管理外）
 ```
@@ -204,6 +229,5 @@ dist/                tsc 出力（git 管理外）
 - 統計・ログの記録
 - ポモドーロの細かな管理
 - 複数プロファイル
-- GUI の設定画面（JSON を直接編集する。例外はトレイの「休憩時間」選択のみ）
 - 自動更新
 - React / Vue 等のフロントエンドフレームワーク

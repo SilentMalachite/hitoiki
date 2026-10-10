@@ -75,10 +75,20 @@ const fake = vi.hoisted(() => {
     }
   }
 
+  class FakeSettingsWindow {
+    static last: FakeSettingsWindow | undefined;
+    readonly open = vi.fn();
+    readonly dispose = vi.fn();
+    constructor(readonly options: { configPath: string; onSaved: () => void; openConfigFile: () => void }) {
+      FakeSettingsWindow.last = this;
+    }
+  }
+
   return {
     app,
     FakeTray,
     FakeOverlay,
+    FakeSettingsWindow,
     powerMonitor: new Emitter(),
     Menu: {
       setApplicationMenu: vi.fn(),
@@ -98,6 +108,7 @@ vi.mock('electron', () => ({
   shell: fake.shell,
 }));
 vi.mock('../src/overlay', () => ({ Overlay: fake.FakeOverlay }));
+vi.mock('../src/settings', () => ({ SettingsWindow: fake.FakeSettingsWindow }));
 
 /** Local time on 2026-09-21. */
 function at(hours: number, minutes: number): Date {
@@ -120,6 +131,12 @@ function tray(): InstanceType<typeof fake.FakeTray> {
 function overlay(): InstanceType<typeof fake.FakeOverlay> {
   const current = fake.FakeOverlay.last;
   if (current === undefined) throw new Error('no overlay');
+  return current;
+}
+
+function settingsWindow(): InstanceType<typeof fake.FakeSettingsWindow> {
+  const current = fake.FakeSettingsWindow.last;
+  if (current === undefined) throw new Error('no settings window');
   return current;
 }
 
@@ -155,6 +172,7 @@ beforeEach(() => {
   fake.powerMonitor.removeAllListeners();
   fake.FakeTray.last = undefined;
   fake.FakeOverlay.last = undefined;
+  fake.FakeSettingsWindow.last = undefined;
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'hitoiki-main-'));
   configPath = path.join(userData, 'config.json');
   fake.app.userData = userData;
@@ -196,6 +214,7 @@ describe('main tray menu', () => {
       '休憩時間',
       '30 分間停止',
       'separator',
+      '設定…',
       '設定ファイルを開く',
       '設定を再読込',
       'separator',
@@ -307,6 +326,36 @@ describe('main tray menu', () => {
     expect(fake.shell.openPath).toHaveBeenCalledWith(configPath);
   });
 
+  it('opens the settings window', async () => {
+    await launch();
+
+    expect(settingsWindow().options.configPath).toBe(configPath);
+    expect(settingsWindow().open).not.toHaveBeenCalled();
+
+    item('設定…').click?.();
+
+    expect(settingsWindow().open).toHaveBeenCalledOnce();
+  });
+
+  it('reloads after the settings window saved, keeping the interval anchor', async () => {
+    await launch();
+    vi.setSystemTime(at(9, 20));
+    fs.writeFileSync(configPath, JSON.stringify({ intervalMinutes: 30, breakSeconds: 300 }));
+
+    settingsWindow().options.onSaved();
+
+    expect(tooltip()).toBe('Hitoiki: 次回 09:30');
+    expect(breakItems().filter((entry) => entry.checked).map((entry) => entry.label)).toEqual(['5 分']);
+  });
+
+  it('opens the config file for the settings window', async () => {
+    await launch();
+
+    settingsWindow().options.openConfigFile();
+
+    expect(fake.shell.openPath).toHaveBeenCalledWith(configPath);
+  });
+
   it('quits from the tray', async () => {
     await launch();
 
@@ -365,11 +414,12 @@ describe('main lifecycle', () => {
     expect(tooltip()).toBe('Hitoiki: 次回 10:30');
   });
 
-  it('releases the overlay before quitting', async () => {
+  it('releases the overlay and the settings window before quitting', async () => {
     await launch();
 
     fake.app.events.emit('before-quit');
 
     expect(overlay().dispose).toHaveBeenCalled();
+    expect(settingsWindow().dispose).toHaveBeenCalled();
   });
 });

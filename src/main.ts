@@ -3,6 +3,7 @@ import { app, Menu, nativeImage, powerMonitor, shell, Tray, type MenuItemConstru
 import { loadConfig, saveBreakSeconds } from './config';
 import { Overlay } from './overlay';
 import { Scheduler } from './scheduler';
+import { SettingsWindow } from './settings';
 
 const PAUSE_MINUTES = 30;
 const BREAK_CHOICES_SECONDS = [1, 3, 5, 10, 15, 30, 60].map((minutes) => minutes * 60);
@@ -45,6 +46,7 @@ function start(): void {
     onFire: (breakSeconds) => takeBreak(breakSeconds),
   });
   tray = new Tray(createTrayIcon());
+  const settings = new SettingsWindow({ configPath, onSaved: reload, openConfigFile: openConfig });
 
   function refreshTray(): void {
     tray?.setToolTip(tooltip());
@@ -152,6 +154,7 @@ function start(): void {
         ? { label: `${PAUSE_MINUTES} 分間停止`, click: pause }
         : { label: `再開（${formatTime(pausedUntil)} に自動再開）`, click: resume },
       { type: 'separator' },
+      { label: '設定…', click: () => settings.open() },
       { label: '設定ファイルを開く', click: openConfig },
       { label: '設定を再読込', click: reload },
       { type: 'separator' },
@@ -169,8 +172,12 @@ function start(): void {
     }
   });
 
-  // Overlay windows refuse to close during a break; release them so quit, logout and shutdown go through.
-  app.on('before-quit', () => overlay.dispose());
+  // Overlay windows refuse to close during a break, and the settings window asks about unsaved changes;
+  // release both so quit, logout and shutdown go through.
+  app.on('before-quit', () => {
+    overlay.dispose();
+    settings.dispose();
+  });
 
   restartFromNow();
 }
