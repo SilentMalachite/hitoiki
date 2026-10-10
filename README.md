@@ -22,8 +22,10 @@ break is over.
 - **Follows display changes**: displays connected, disconnected or rearranged during a flash or break are
   covered, dropped or refitted.
 - **Tray only**: no main window and, on macOS, no Dock icon. The tray tooltip shows the next break time.
+- **Settings window**: change every setting in a small form opened from the tray, or edit the JSON file
+  directly. Out-of-range values cannot be saved, and saving applies them at once.
 - **Light and private**: one JSON settings file, no network access, no polling. While waiting there are no
-  overlay windows, so no renderer process runs.
+  overlay windows, so no renderer process runs (the settings window has one only while it is open).
 
 ## Install
 
@@ -88,6 +90,7 @@ Hitoiki lives in the menu bar (macOS) or the notification area (Windows). The me
 | 今すぐ休憩 | Take a break now |
 | 休憩時間 ▸ 1 / 3 / 5 / 10 / 15 / 30 / 60 分 | Break length. Saved as `breakSeconds` in the settings file |
 | 30 分間停止 / 再開 | Pause for 30 minutes / resume now |
+| 設定… | Open the settings window |
 | 設定ファイルを開く | Open the settings file |
 | 設定を再読込 | Reload the settings file |
 | 終了 | Quit |
@@ -100,8 +103,19 @@ the `shell:startup` folder).
 
 ## Settings
 
-Choose **設定ファイルを開く** (Open the settings file), edit it, then choose **設定を再読込** (Reload).
-The file is created with the defaults on the first launch:
+Choose **設定…** (Settings) in the tray to change the settings in a window:
+
+- It holds every key in the table below. Each field shows its range, and a value out of range or a clock
+  time that is not `HH:mm` is outlined in red and blocks saving.
+- A clock time can have its own break length. Leave that field empty to use the default break length.
+- **保存** (Save) writes the file and applies it right away; the next interval break is not pushed back.
+  Only the values you changed in the window are written, so a break length chosen from the tray in the
+  meantime, and any other keys you added to the file, are kept.
+- Closing the window with unsaved changes asks first. If the file is broken, the window shows why and
+  does not save; fix the file with **設定ファイルを開く**, then open the window again.
+
+You can also edit the file directly: choose **設定ファイルを開く** (Open the settings file), edit it, then
+choose **設定を再読込** (Reload). The file is created with the defaults on the first launch:
 
 - macOS: `~/Library/Application Support/hitoiki/config.json`
 - Windows: `%APPDATA%\hitoiki\config.json`
@@ -143,7 +157,6 @@ The file is created with the defaults on the first launch:
 - Hitoiki is a nudge, not a lock. It does not use OS-level input hooks, so a keystroke typed right after
   Cmd+Tab / Alt+Tab can reach another app before Hitoiki takes focus back. Holding Esc for 3 seconds always
   ends a break.
-- There is no settings window. Edit the JSON file; only the break length can be changed from the tray.
 - Out of scope: statistics, Pomodoro management, multiple profiles and auto-update.
 - The packaged app is about 150 MB, since it includes Electron.
 
